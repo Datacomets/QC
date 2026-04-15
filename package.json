@@ -1,0 +1,18 @@
+{
+  "name": "appqc-tools",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Setup & seed scripts for appQC",
+  "scripts": {
+    "seed:users": "node scripts/seed-users.mjs",
+    "seed:master": "node scripts/seed-master.mjs",
+    "seed:all": "npm run seed:users && npm run seed:master",
+    "test:conn": "node scripts/test-connection.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "dotenv": "^16.4.5",
+    "xlsx": "^0.18.5"
+  }
+}

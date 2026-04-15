@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    @apply bg-surface text-on-surface font-body antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+  h1, h2, h3, h4, h5 { @apply font-display; }
+}
+
+@layer components {
+  /* Buttons (Precision Ledger) */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-5 py-3 text-sm font-semibold text-white
+           bg-gradient-to-br from-primary to-primary-dim
+           hover:brightness-105 active:brightness-95 transition
+           shadow-ambient disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-5 py-3 text-sm font-semibold
+           bg-surface-high text-on-surface hover:bg-surface-highest transition;
+  }
+  .btn-tertiary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-primary
+           hover:bg-primary-container/50 transition;
+  }
+
+  /* Input */
+  .field-label {
+    @apply block text-xs font-medium uppercase tracking-wide text-on-surface-variant mb-1.5;
+  }
+  .field-input {
+    @apply w-full rounded-md bg-surface-lowest px-3.5 py-2.5 text-sm text-on-surface
+           placeholder:text-on-surface-variant/70
+           focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-primary/[0.04] transition;
+  }
+  .field-select { @apply field-input appearance-none; }
+
+  /* Card / section (no borders, tonal layering) */
+  .card {
+    @apply rounded-lg bg-surface-lowest p-6 shadow-ambient;
+  }
+  .section {
+    @apply rounded-lg bg-surface-low p-6;
+  }
+
+  /* Pass/Fail precision strip */
+  .precision-strip-pass { @apply border-l-4 border-primary pl-4; }
+  .precision-strip-fail { @apply border-l-4 border-error pl-4; }
+
+  /* Chip */
+  .chip {
+    @apply inline-flex items-center rounded-full px-3 py-1 text-xs font-medium
+           bg-surface-highest text-on-surface-variant;
+  }
+  .chip-active { @apply bg-primary-container text-on-primary-container; }
+
+  /* Tooltip */
+  .tooltip {
+    @apply rounded-sm bg-inverse/90 px-2 py-1 text-xs text-white;
+  }
+
+  /* Glass nav */
+  .glass {
+    @apply bg-surface/80 backdrop-blur-[20px];
+  }
+}
