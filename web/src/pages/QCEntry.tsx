@@ -1,12 +1,14 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import SuccessModal, { OrderSummary } from '../components/SuccessModal';
 
 type Rank = 'Critical' | 'Major' | 'Minor';
 interface Material { sap_code: string; description: string | null; brand: string | null; sales: string | null; scm: string | null; }
 interface Supplier { sup_code: string; supplier_name: string; sup_sap_code: string | null; }
 interface Defect { defect_code: string; symptom: string; reason: string | null; }
-interface DetailRow { defect_code: string; symptom: string; critical_rank: Rank; quantity: number; }
+interface ImageFile { file: File; preview: string; }
+interface DetailRow { defect_code: string; symptom: string; critical_rank: Rank; quantity: number; images: ImageFile[]; }
 
 export default function QCEntry() {
   const { profile } = useAuth();
@@ -28,6 +30,7 @@ export default function QCEntry() {
 
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const [successOrder, setSuccessOrder] = useState<OrderSummary | null>(null);
 
   // Lookups
   useEffect(() => {
@@ -82,14 +85,49 @@ export default function QCEntry() {
 
   const addDefect = (d: Defect) => {
     if (details.some(x => x.defect_code === d.defect_code)) return;
-    setDetails([...details, { defect_code: d.defect_code, symptom: d.symptom, critical_rank: 'Minor', quantity: 1 }]);
+    setDetails([...details, { defect_code: d.defect_code, symptom: d.symptom, critical_rank: 'Minor', quantity: 1, images: [] }]);
     setDefectQuery('');
   };
 
   const updDetail = (i: number, patch: Partial<DetailRow>) => {
     setDetails(details.map((d, idx) => idx === i ? { ...d, ...patch } : d));
   };
-  const rmDetail = (i: number) => setDetails(details.filter((_, idx) => idx !== i));
+  const rmDetail = (i: number) => {
+    details[i].images.forEach(img => URL.revokeObjectURL(img.preview));
+    setDetails(details.filter((_, idx) => idx !== i));
+  };
+
+  const addImages = (i: number, files: FileList | null) => {
+    if (!files) return;
+    const current = details[i].images;
+    const remaining = 3 - current.length;
+    if (remaining <= 0) return;
+    const newImgs: ImageFile[] = Array.from(files).slice(0, remaining).map(f => ({
+      file: f, preview: URL.createObjectURL(f)
+    }));
+    updDetail(i, { images: [...current, ...newImgs] });
+  };
+
+  const rmImage = (detailIdx: number, imgIdx: number) => {
+    const imgs = [...details[detailIdx].images];
+    URL.revokeObjectURL(imgs[imgIdx].preview);
+    imgs.splice(imgIdx, 1);
+    updDetail(detailIdx, { images: imgs });
+  };
+
+  const uploadImages = async (orderId: number, detailIdx: number): Promise<string[]> => {
+    const urls: string[] = [];
+    for (const img of details[detailIdx].images) {
+      const ext = img.file.name.split('.').pop() || 'jpg';
+      const path = `${orderId}/${detailIdx}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${ext}`;
+      const { error } = await supabase.storage.from('defect-images').upload(path, img.file);
+      if (!error) {
+        const { data } = supabase.storage.from('defect-images').getPublicUrl(path);
+        urls.push(data.publicUrl);
+      }
+    }
+    return urls;
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -114,23 +152,53 @@ export default function QCEntry() {
     if (error || !order) { setMsg('บันทึกไม่สำเร็จ: ' + (error?.message || '')); setSaving(false); return; }
 
     if (details.length) {
-      const { error: e2 } = await supabase.from('qc_order_details').insert(
-        details.map(d => ({
+      const rows = [];
+      for (let i = 0; i < details.length; i++) {
+        const d = details[i];
+        const imageUrls = d.images.length > 0 ? await uploadImages(order.id, i) : [];
+        rows.push({
           order_id: order.id,
           defect_code: d.defect_code, symptom: d.symptom,
-          critical_rank: d.critical_rank, quantity: +d.quantity
-        }))
-      );
+          critical_rank: d.critical_rank, quantity: +d.quantity,
+          images: imageUrls
+        });
+      }
+      const { error: e2 } = await supabase.from('qc_order_details').insert(rows);
       if (e2) { setMsg('บันทึกรายการของเสียไม่สำเร็จ: ' + e2.message); setSaving(false); return; }
     }
 
-    setMsg(`✅ บันทึกสำเร็จ  เลขที่ ${order.order_no}`);
+    const summary: OrderSummary = {
+      order_no: order.order_no,
+      order_date: orderDate,
+      sap_code: sapCode.trim(),
+      material_description: material?.description || null,
+      brand: material?.brand || null,
+      sales: material?.sales || null,
+      scm: material?.scm || null,
+      sup_code: supCode.trim() || null,
+      supplier_name: supplier?.supplier_name || null,
+      lot_no: lotNo.trim() || null,
+      received_qty: receivedQty === '' ? null : +receivedQty,
+      sample_size: typeof sampleSize === 'number' ? sampleSize : parseInt(String(sampleSize)),
+      note: note.trim() || null,
+      details: details.map(d => ({
+        defect_code: d.defect_code,
+        symptom: d.symptom,
+        critical_rank: d.critical_rank,
+        quantity: d.quantity,
+        images: d.images
+      }))
+    };
+    setSuccessOrder(summary);
     setSaving(false);
-    // Reset
     setSapCode(''); setSupCode(''); setLotNo(''); setReceivedQty(''); setSampleSize(''); setNote(''); setDetails([]);
   };
 
   return (
+    <>
+    {successOrder && (
+      <SuccessModal order={successOrder} onClose={() => setSuccessOrder(null)} />
+    )}
     <form onSubmit={submit} className={`space-y-6 ${pass === null ? '' : pass ? 'precision-strip-pass' : 'precision-strip-fail'}`}>
       <div className="flex items-baseline justify-between">
         <div>
@@ -212,27 +280,55 @@ export default function QCEntry() {
         </div>
 
         {details.length > 0 && (
-          <div className="mt-4 space-y-2">
+          <div className="mt-4 space-y-3">
             {details.map((d, i) => (
-              <div key={i} className="bg-surface-lowest rounded-md p-3 grid grid-cols-12 gap-3 items-center">
-                <div className="col-span-6">
-                  <div className="font-mono text-xs text-on-surface-variant">{d.defect_code}</div>
-                  <div className="text-sm">{d.symptom}</div>
+              <div key={i} className="bg-surface-lowest rounded-md p-4 space-y-3">
+                <div className="grid grid-cols-12 gap-3 items-center">
+                  <div className="col-span-5">
+                    <div className="font-mono text-xs text-on-surface-variant">{d.defect_code}</div>
+                    <div className="text-sm">{d.symptom}</div>
+                  </div>
+                  <div className="col-span-3">
+                    <select className="field-select text-sm" value={d.critical_rank}
+                      onChange={e => updDetail(i, { critical_rank: e.target.value as Rank })}>
+                      <option value="Critical">Critical</option>
+                      <option value="Major">Major</option>
+                      <option value="Minor">Minor</option>
+                    </select>
+                  </div>
+                  <div className="col-span-2">
+                    <input type="number" min="0" className="field-input text-sm text-right"
+                      value={d.quantity} onChange={e => updDetail(i, { quantity: +e.target.value })} />
+                  </div>
+                  <button type="button" onClick={() => rmDetail(i)}
+                    className="col-span-2 text-xs text-error hover:underline text-right">ลบ</button>
                 </div>
-                <div className="col-span-3">
-                  <select className="field-select text-sm" value={d.critical_rank}
-                    onChange={e => updDetail(i, { critical_rank: e.target.value as Rank })}>
-                    <option value="Critical">Critical</option>
-                    <option value="Major">Major</option>
-                    <option value="Minor">Minor</option>
-                  </select>
+                {/* Image upload 1-3 */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {d.images.map((img, j) => (
+                    <div key={j} className="relative group">
+                      <img src={img.preview} alt={`defect-${i}-${j}`}
+                        className="h-16 w-16 rounded-md object-cover bg-surface-mid" />
+                      <button type="button" onClick={() => rmImage(i, j)}
+                        className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-error text-white text-[10px] font-bold
+                                   grid place-items-center opacity-0 group-hover:opacity-100 transition">
+                        x
+                      </button>
+                    </div>
+                  ))}
+                  {d.images.length < 3 && (
+                    <label className="h-16 w-16 rounded-md bg-surface-mid flex flex-col items-center justify-center
+                                      cursor-pointer hover:bg-surface-high transition text-on-surface-variant">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      <span className="text-[9px] mt-0.5">{d.images.length}/3</span>
+                      <input type="file" accept="image/*" multiple className="hidden"
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => addImages(i, e.target.files)} />
+                    </label>
+                  )}
                 </div>
-                <div className="col-span-2">
-                  <input type="number" min="0" className="field-input text-sm text-right"
-                    value={d.quantity} onChange={e => updDetail(i, { quantity: +e.target.value })} />
-                </div>
-                <button type="button" onClick={() => rmDetail(i)}
-                  className="col-span-1 text-xs text-error hover:underline">ลบ</button>
               </div>
             ))}
           </div>
@@ -252,6 +348,7 @@ export default function QCEntry() {
         </button>
       </div>
     </form>
+    </>
   );
 }
 

@@ -18,6 +18,7 @@ export default function Shell() {
         </Link>
         <nav className="flex items-center gap-1">
           <NavLink to="/" end className={({ isActive }) => `chip ${isActive ? 'chip-active' : ''}`}>บันทึก QC</NavLink>
+          <NavLink to="/history" className={({ isActive }) => `chip ${isActive ? 'chip-active' : ''}`}>ประวัติ</NavLink>
           {isAdmin && (
             <NavLink to="/admin" className={({ isActive }) => `chip ${isActive ? 'chip-active' : ''}`}>Admin</NavLink>
           )}

@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './lib/auth';
 import Login from './pages/Login';
 import QCEntry from './pages/QCEntry';
+import History from './pages/History';
 import Admin from './pages/Admin';
 import Shell from './components/Shell';
 
@@ -20,6 +21,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route element={<Protected><Shell /></Protected>}>
           <Route path="/" element={<QCEntry />} />
+          <Route path="/history" element={<History />} />
           <Route path="/admin" element={<Protected roles={['admin', 'qc_admin']}><Admin /></Protected>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
