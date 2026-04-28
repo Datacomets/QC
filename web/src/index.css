@@ -34,8 +34,9 @@
   }
   .field-input {
     @apply w-full rounded-md bg-surface-lowest px-3.5 py-2.5 text-sm text-on-surface
+           border border-outline-variant/40
            placeholder:text-on-surface-variant/70
-           focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-primary/[0.04] transition;
+           focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 focus:bg-primary/[0.04] transition;
   }
   .field-select { @apply field-input appearance-none; }
 

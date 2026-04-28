@@ -1,1 +1,0 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/shell.tsx","./src/components/successmodal.tsx","./src/lib/auth.tsx","./src/lib/supabase.ts","./src/pages/admin.tsx","./src/pages/history.tsx","./src/pages/login.tsx","./src/pages/qcentry.tsx"],"version":"5.9.3"}

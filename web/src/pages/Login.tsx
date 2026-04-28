@@ -15,9 +15,15 @@ export default function Login() {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setErr(''); setBusy(true);
-    const { error } = await signIn(email.trim(), password);
-    setBusy(false);
-    if (error) setErr('อีเมลหรือรหัสผ่านไม่ถูกต้อง'); else nav('/');
+    try {
+      const { error } = await signIn(email.trim(), password);
+      setBusy(false);
+      if (error) setErr(error);
+      else nav('/');
+    } catch (ex: any) {
+      setBusy(false);
+      setErr(ex?.message || 'เกิดข้อผิดพลาด');
+    }
   };
 
   return (
@@ -25,27 +31,27 @@ export default function Login() {
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
           <div className="mx-auto h-14 w-14 rounded-lg bg-gradient-to-br from-primary to-primary-dim grid place-items-center text-white font-display font-bold text-2xl shadow-ambient">Q</div>
-          <h1 className="mt-4 font-display font-bold text-3xl tracking-tight">The Precision Ledger</h1>
-          <p className="mt-1 text-sm text-on-surface-variant">Quality Control Inspection System</p>
+          <h1 className="mt-4 font-display font-bold text-3xl tracking-tight">QC Inspection</h1>
+          <p className="mt-1 text-sm text-on-surface-variant">ระบบสุ่มตรวจคุณภาพ / Quality Control Inspection System</p>
         </div>
 
         <form onSubmit={submit} className="card space-y-5">
           <div>
-            <label className="field-label">Email</label>
+            <label className="field-label">อีเมล / Email</label>
             <input type="email" required autoFocus className="field-input"
               value={email} onChange={e => setEmail(e.target.value)}
               placeholder="you@cometsintertrade.com" />
           </div>
           <div>
-            <label className="field-label">Password</label>
+            <label className="field-label">รหัสผ่าน / Password</label>
             <input type="password" required className="field-input"
               value={password} onChange={e => setPassword(e.target.value)}
               placeholder="••••••••" />
           </div>
           {err && <div className="rounded-md bg-error-container px-3 py-2 text-sm text-error">{err}</div>}
-          <button className="btn-primary w-full" disabled={busy}>{busy ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบ'}</button>
+          <button className="btn-primary w-full" disabled={busy}>{busy ? 'กำลังเข้าสู่ระบบ… / Signing in…' : 'เข้าสู่ระบบ / Sign In'}</button>
           <p className="text-xs text-center text-on-surface-variant">
-            บัญชีผู้ใช้ถูกสร้างโดย Admin เท่านั้น
+            บัญชีผู้ใช้ถูกสร้างโดย Admin เท่านั้น / Account created by Admin only
           </p>
         </form>
       </div>

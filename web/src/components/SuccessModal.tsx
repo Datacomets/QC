@@ -1,3 +1,5 @@
+import { fmtDate } from '../lib/utils';
+
 interface DefectSummary {
   defect_code: string;
   symptom: string;
@@ -19,6 +21,8 @@ interface OrderSummary {
   lot_no: string | null;
   received_qty: number | null;
   sample_size: number;
+  status?: string;
+  ncr_no?: string | null;
   note: string | null;
   details: DefectSummary[];
 }
@@ -45,8 +49,8 @@ export default function SuccessModal({ order, onClose }: Props) {
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-full bg-primary grid place-items-center text-white text-lg font-bold">✓</div>
             <div>
-              <h2 className="font-display font-bold text-lg text-on-primary-container">บันทึกข้อมูลสำเร็จ</h2>
-              <p className="text-sm text-on-primary-container/80">เลขที่ {order.order_no}</p>
+              <h2 className="font-display font-bold text-lg text-on-primary-container">บันทึกข้อมูลสำเร็จ / Saved Successfully</h2>
+              <p className="text-sm text-on-primary-container/80">เลขที่ / Order No. {order.order_no}</p>
             </div>
           </div>
         </div>
@@ -54,23 +58,38 @@ export default function SuccessModal({ order, onClose }: Props) {
         <div className="px-6 py-5 space-y-4">
           {/* Order info */}
           <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-            <Field label="วันที่" value={order.order_date} />
-            <Field label="SAP Code" value={order.sap_code} />
-            <Field label="รายละเอียด" value={order.material_description} className="col-span-2" />
-            <Field label="Brand" value={order.brand} />
-            <Field label="Sales" value={order.sales} />
+            <Field label="วันที่ / Date" value={fmtDate(order.order_date)} />
+            <Field label="รหัส SAP / SAP Code" value={order.sap_code} />
+            <Field label="รายละเอียด / Description" value={order.material_description} className="col-span-2" />
+            <Field label="แบรนด์ / Brand" value={order.brand} />
+            <Field label="ฝ่ายขาย / Sales" value={order.sales} />
             <Field label="SCM" value={order.scm} />
-            <Field label="Sup Code" value={order.sup_code} />
-            <Field label="Supplier" value={order.supplier_name} className="col-span-2" />
-            <Field label="Lot No." value={order.lot_no} />
-            <Field label="จำนวนรับ" value={order.received_qty != null ? String(order.received_qty) : null} />
-            <Field label="จำนวนตรวจสอบ" value={String(order.sample_size)} />
+            <Field label="รหัส Sup / Sup Code" value={order.sup_code} />
+            <Field label="ผู้จัดจำหน่าย / Supplier" value={order.supplier_name} className="col-span-2" />
+            <Field label="หมายเลข Lot / Lot No." value={order.lot_no} />
+            <Field label="จำนวนรับ / Received" value={order.received_qty != null ? String(order.received_qty) : null} />
+            <Field label="จำนวนตรวจสอบ / Sample Size" value={String(order.sample_size)} />
+            {order.status && <Field label="สถานะ / Status" value={order.status} />}
           </div>
+
+          {/* NCR notice */}
+          {order.status === 'Reject' && order.ncr_no && (
+            <div className="rounded-md bg-error-container border border-error/30 px-4 py-3">
+              <div className="flex items-start gap-3">
+                <div className="h-8 w-8 rounded-full bg-error grid place-items-center text-white font-bold shrink-0">!</div>
+                <div>
+                  <div className="font-display font-bold text-sm text-error">สร้าง NCR อัตโนมัติ / NCR Auto-Created</div>
+                  <div className="text-sm text-error mt-0.5">เลขที่ NCR: <b className="font-mono">{order.ncr_no}</b></div>
+                  <div className="text-xs text-error/80 mt-1">เนื่องจากสถานะเป็น Reject ระบบจะสร้าง NCR เพื่อติดตามการแก้ไข</div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Defect summary */}
           <div className="bg-surface-low rounded-md p-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="font-display font-semibold text-sm">สรุปของเสีย</h3>
+              <h3 className="font-display font-semibold text-sm">สรุปของเสีย / Defect Summary</h3>
               <div className={`font-display font-bold text-2xl ${pct > 0 ? 'text-error' : 'text-primary'}`}>
                 {pct.toFixed(2)}%
               </div>
@@ -117,14 +136,14 @@ export default function SuccessModal({ order, onClose }: Props) {
 
           {order.note && (
             <div>
-              <label className="text-[11px] uppercase tracking-wide text-on-surface-variant">หมายเหตุ</label>
+              <label className="text-[11px] uppercase tracking-wide text-on-surface-variant">หมายเหตุ / Remarks</label>
               <p className="text-sm mt-0.5">{order.note}</p>
             </div>
           )}
         </div>
 
         <div className="sticky bottom-0 bg-surface-lowest px-6 py-4 border-t border-outline-variant/15">
-          <button onClick={onClose} className="btn-primary w-full">ปิด</button>
+          <button onClick={onClose} className="btn-primary w-full">ปิด / Close</button>
         </div>
       </div>
     </div>

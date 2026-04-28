@@ -9,10 +9,10 @@ if (!url || !key) {
 }
 
 export const supabase = createClient(url, key, {
-  auth: { persistSession: true, autoRefreshToken: true }
+  auth: { persistSession: false, autoRefreshToken: false }
 });
 
-export type Role = 'admin' | 'qc_admin' | 'operator';
+export type Role = string; // admin | qc_admin | operator | viewer | custom
 
 export interface Profile {
   id: string;

@@ -4,6 +4,10 @@ import Login from './pages/Login';
 import QCEntry from './pages/QCEntry';
 import History from './pages/History';
 import Admin from './pages/Admin';
+import Guide from './pages/Guide';
+import QCEdit from './pages/QCEdit';
+import Dashboard from './pages/Dashboard';
+import Materials from './pages/Materials';
 import Shell from './components/Shell';
 
 function Protected({ children, roles }: { children: JSX.Element; roles?: string[] }) {
@@ -20,8 +24,12 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route element={<Protected><Shell /></Protected>}>
-          <Route path="/" element={<QCEntry />} />
-          <Route path="/history" element={<History />} />
+          <Route path="/" element={<History />} />
+          <Route path="/entry" element={<QCEntry />} />
+          <Route path="/guide" element={<Guide />} />
+          <Route path="/edit/:orderId" element={<QCEdit />} />
+          <Route path="/dashboard" element={<Protected roles={['admin', 'qc_admin', 'viewer']}><Dashboard /></Protected>} />
+          <Route path="/materials" element={<Materials />} />
           <Route path="/admin" element={<Protected roles={['admin', 'qc_admin']}><Admin /></Protected>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

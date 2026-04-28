@@ -4,11 +4,12 @@ import { useAuth } from '../lib/auth';
 import SuccessModal, { OrderSummary } from '../components/SuccessModal';
 
 type Rank = 'Critical' | 'Major' | 'Minor';
-interface Material { sap_code: string; description: string | null; brand: string | null; sales: string | null; scm: string | null; }
+interface Material { sap_code: string; description: string | null; product_category: string | null; brand: string | null; sales: string | null; scm: string | null; }
 interface Supplier { sup_code: string; supplier_name: string; sup_sap_code: string | null; }
 interface Defect { defect_code: string; symptom: string; reason: string | null; }
+interface DefectItem { code: string; symptom: string; }
 interface ImageFile { file: File; preview: string; }
-interface DetailRow { defect_code: string; symptom: string; critical_rank: Rank; quantity: number; images: ImageFile[]; }
+interface DetailRow { defects: DefectItem[]; critical_rank: Rank; quantity: number; images: ImageFile[]; }
 
 export default function QCEntry() {
   const { profile } = useAuth();
@@ -17,16 +18,20 @@ export default function QCEntry() {
   const [orderDate, setOrderDate] = useState(today);
   const [sapCode, setSapCode] = useState('');
   const [material, setMaterial] = useState<Material | null>(null);
-  const [supCode, setSupCode] = useState('');
+  const [supSapCode, setSupSapCode] = useState('');
   const [supplier, setSupplier] = useState<Supplier | null>(null);
+  const [salesVal, setSalesVal] = useState('');
+  const [scmVal, setScmVal] = useState('');
   const [lotNo, setLotNo] = useState('');
   const [receivedQty, setReceivedQty] = useState<number | ''>('');
   const [sampleSize, setSampleSize] = useState<number | ''>('');
+  const [orderStatus, setOrderStatus] = useState<'Accept' | 'Accept Lot' | 'Reject' | ''>('');
   const [note, setNote] = useState('');
 
   const [details, setDetails] = useState<DetailRow[]>([]);
   const [defects, setDefects] = useState<Defect[]>([]);
   const [defectQuery, setDefectQuery] = useState('');
+  const [staging, setStaging] = useState<DefectItem[]>([]);
 
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
@@ -40,27 +45,32 @@ export default function QCEntry() {
 
   // Resolve SAP → material (debounced)
   useEffect(() => {
+    setMaterial(null);
     const code = sapCode.trim();
-    if (!code) { setMaterial(null); return; }
+    if (!code) { setSalesVal(''); setScmVal(''); return; }
     const t = setTimeout(async () => {
       const { data } = await supabase.from('materials')
-        .select('sap_code,description,brand,sales,scm').eq('sap_code', code).maybeSingle();
-      setMaterial((data as Material) || null);
-    }, 250);
+        .select('sap_code,description,product_category,brand,sales,scm').eq('sap_code', code).maybeSingle();
+      const m = (data as Material) || null;
+      setMaterial(m);
+      setSalesVal(m?.sales || '');
+      setScmVal(m?.scm || '');
+    }, 400);
     return () => clearTimeout(t);
   }, [sapCode]);
 
-  // Resolve Sup code → supplier
+  // Resolve Sup SAP Code → supplier
   useEffect(() => {
-    const code = supCode.trim();
-    if (!code) { setSupplier(null); return; }
+    setSupplier(null);
+    const code = supSapCode.trim();
+    if (!code) return;
     const t = setTimeout(async () => {
       const { data } = await supabase.from('suppliers')
-        .select('sup_code,supplier_name,sup_sap_code').eq('sup_code', code).maybeSingle();
+        .select('sup_code,supplier_name,sup_sap_code').eq('sup_sap_code', code).maybeSingle();
       setSupplier((data as Supplier) || null);
-    }, 250);
+    }, 400);
     return () => clearTimeout(t);
-  }, [supCode]);
+  }, [supSapCode]);
 
   // Totals
   const totals = useMemo(() => {
@@ -83,9 +93,18 @@ export default function QCEntry() {
     ).slice(0, 20);
   }, [defectQuery, defects]);
 
-  const addDefect = (d: Defect) => {
-    if (details.some(x => x.defect_code === d.defect_code)) return;
-    setDetails([...details, { defect_code: d.defect_code, symptom: d.symptom, critical_rank: 'Minor', quantity: 1, images: [] }]);
+  const toggleStaging = (d: Defect) => {
+    if (staging.some(s => s.code === d.defect_code)) {
+      setStaging(staging.filter(s => s.code !== d.defect_code));
+    } else {
+      setStaging([...staging, { code: d.defect_code, symptom: d.symptom }]);
+    }
+  };
+
+  const addGroup = () => {
+    if (staging.length === 0) return;
+    setDetails([...details, { defects: staging, critical_rank: 'Minor', quantity: 1, images: [] }]);
+    setStaging([]);
     setDefectQuery('');
   };
 
@@ -134,17 +153,19 @@ export default function QCEntry() {
     setMsg(''); setSaving(true);
     const sample = typeof sampleSize === 'number' ? sampleSize : parseInt(String(sampleSize));
     if (!sapCode || !sample) { setMsg('กรุณากรอก SAP Code และจำนวนตรวจสอบ'); setSaving(false); return; }
+    if (!orderStatus) { setMsg('กรุณาเลือกสถานะ Order Status'); setSaving(false); return; }
 
     const { data: order, error } = await supabase.from('qc_orders').insert({
       order_date: orderDate,
       sap_code: sapCode.trim(),
       material_description: material?.description,
-      brand: material?.brand, sales: material?.sales, scm: material?.scm,
-      sup_code: supCode.trim() || null,
+      brand: material?.brand, sales: salesVal || null, scm: scmVal || null,
+      sup_code: supplier?.sup_code || null,
       supplier_name: supplier?.supplier_name,
       lot_no: lotNo.trim() || null,
       received_qty: receivedQty === '' ? null : +receivedQty,
       sample_size: sample,
+      status: orderStatus,
       note: note.trim() || null,
       created_by: profile?.id
     }).select('id, order_no').single();
@@ -156,9 +177,11 @@ export default function QCEntry() {
       for (let i = 0; i < details.length; i++) {
         const d = details[i];
         const imageUrls = d.images.length > 0 ? await uploadImages(order.id, i) : [];
+        const primaryCode = d.defects[0]?.code;
+        const combinedSymptom = d.defects.map(df => `${df.code}: ${df.symptom}`).join(', ');
         rows.push({
           order_id: order.id,
-          defect_code: d.defect_code, symptom: d.symptom,
+          defect_code: primaryCode, symptom: combinedSymptom,
           critical_rank: d.critical_rank, quantity: +d.quantity,
           images: imageUrls
         });
@@ -167,23 +190,39 @@ export default function QCEntry() {
       if (e2) { setMsg('บันทึกรายการของเสียไม่สำเร็จ: ' + e2.message); setSaving(false); return; }
     }
 
+    // Fallback: auto-create NCR if status = Reject (in case DB trigger not applied)
+    let ncrNo: string | null = null;
+    if (orderStatus === 'Reject') {
+      const { data: existingNcr } = await supabase.from('ncr_reports').select('ncr_no').eq('order_id', order.id).maybeSingle();
+      if (existingNcr) {
+        ncrNo = existingNcr.ncr_no;
+      } else {
+        const { data: newNcr } = await supabase.from('ncr_reports').insert({
+          order_id: order.id, order_no: order.order_no, created_by: profile?.id
+        }).select('ncr_no').single();
+        ncrNo = newNcr?.ncr_no || null;
+      }
+    }
+
     const summary: OrderSummary = {
       order_no: order.order_no,
       order_date: orderDate,
       sap_code: sapCode.trim(),
       material_description: material?.description || null,
       brand: material?.brand || null,
-      sales: material?.sales || null,
-      scm: material?.scm || null,
-      sup_code: supCode.trim() || null,
+      sales: salesVal || null,
+      scm: scmVal || null,
+      sup_code: supplier?.sup_code || null,
       supplier_name: supplier?.supplier_name || null,
       lot_no: lotNo.trim() || null,
       received_qty: receivedQty === '' ? null : +receivedQty,
       sample_size: typeof sampleSize === 'number' ? sampleSize : parseInt(String(sampleSize)),
+      status: orderStatus,
+      ncr_no: ncrNo,
       note: note.trim() || null,
       details: details.map(d => ({
-        defect_code: d.defect_code,
-        symptom: d.symptom,
+        defect_code: d.defects.map(x => x.code).join(', '),
+        symptom: d.defects.map(x => x.symptom).join(', '),
         critical_rank: d.critical_rank,
         quantity: d.quantity,
         images: d.images
@@ -191,7 +230,7 @@ export default function QCEntry() {
     };
     setSuccessOrder(summary);
     setSaving(false);
-    setSapCode(''); setSupCode(''); setLotNo(''); setReceivedQty(''); setSampleSize(''); setNote(''); setDetails([]);
+    setSapCode(''); setSupSapCode(''); setSalesVal(''); setScmVal(''); setLotNo(''); setReceivedQty(''); setSampleSize(''); setOrderStatus(''); setNote(''); setDetails([]); setStaging([]);
   };
 
   return (
@@ -202,11 +241,11 @@ export default function QCEntry() {
     <form onSubmit={submit} className={`space-y-6 ${pass === null ? '' : pass ? 'precision-strip-pass' : 'precision-strip-fail'}`}>
       <div className="flex items-baseline justify-between">
         <div>
-          <h1 className="font-display text-3xl font-bold tracking-tight">บันทึกการสุ่มตรวจ</h1>
-          <p className="text-sm text-on-surface-variant mt-1">ผู้บันทึก: {profile?.full_name}</p>
+          <h1 className="font-display text-3xl font-bold tracking-tight">บันทึกการสุ่มตรวจ / QC Entry</h1>
+          <p className="text-sm text-on-surface-variant mt-1">ผู้บันทึก / Inspector: {profile?.full_name}</p>
         </div>
         <div className="text-right">
-          <div className="text-[11px] uppercase tracking-wider text-on-surface-variant">% ของเสีย</div>
+          <div className="text-[11px] uppercase tracking-wider text-on-surface-variant">% ของเสีย / Defect Rate</div>
           <div className={`font-display font-bold text-5xl ${pass === false ? 'text-error' : 'text-primary'}`}>
             {totals.pct.toFixed(2)}<span className="text-xl align-top">%</span>
           </div>
@@ -216,64 +255,116 @@ export default function QCEntry() {
       {/* Master info */}
       <section className="section grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <label className="field-label">วันที่</label>
+          <label className="field-label">วันที่ / Date</label>
           <input type="date" className="field-input" value={orderDate} onChange={e => setOrderDate(e.target.value)} />
         </div>
         <div className="md:col-span-2">
-          <label className="field-label">SAP Code</label>
+          <label className="field-label">รหัส SAP / SAP Code</label>
           <input className="field-input" value={sapCode} onChange={e => setSapCode(e.target.value)} placeholder="เช่น 1110001" />
-          {material && <p className="mt-1 text-xs text-on-surface-variant">{material.description}</p>}
         </div>
-        <Display label="Brand" value={material?.brand} />
-        <Display label="Sales" value={material?.sales} />
-        <Display label="SCM" value={material?.scm} />
+        <Display label="รายละเอียดสินค้า / Description" value={material?.description} className="md:col-span-3" />
+        <Display label="กลุ่มสินค้า / Category" value={material?.product_category} />
+        <Display label="แบรนด์ / Brand" value={material?.brand} />
+        <div>
+          <label className="field-label">ฝ่ายขาย / Sales</label>
+          <input className="field-input" value={salesVal} onChange={e => setSalesVal(e.target.value)} />
+        </div>
+        <div>
+          <label className="field-label">SCM</label>
+          <input className="field-input" value={scmVal} onChange={e => setScmVal(e.target.value)} />
+        </div>
 
         <div>
-          <label className="field-label">Sup Code</label>
-          <input className="field-input" value={supCode} onChange={e => setSupCode(e.target.value)} placeholder="เช่น A, 1L" />
+          <label className="field-label">รหัส Sup SAP / Vendor Code</label>
+          <input className="field-input" value={supSapCode} onChange={e => setSupSapCode(e.target.value)} placeholder="เช่น 10000138" />
         </div>
-        <Display label="Supplier" value={supplier?.supplier_name} className="md:col-span-2" />
+        <Display label="รหัสผู้จัดจำหน่าย / Sup Code" value={supplier?.sup_code} />
+        <Display label="ผู้จัดจำหน่าย / Supplier" value={supplier?.supplier_name} />
 
         <div>
-          <label className="field-label">Lot No.</label>
+          <label className="field-label">หมายเลข Lot / Lot No.</label>
           <input className="field-input" value={lotNo} onChange={e => setLotNo(e.target.value)} />
         </div>
         <div>
-          <label className="field-label">จำนวนรับ</label>
+          <label className="field-label">จำนวนรับ / Received Qty</label>
           <input type="number" min="0" className="field-input"
             value={receivedQty} onChange={e => setReceivedQty(e.target.value === '' ? '' : +e.target.value)} />
         </div>
         <div>
-          <label className="field-label">จำนวนตรวจสอบ *</label>
+          <label className="field-label">จำนวนตรวจสอบ / Sample Size *</label>
           <input type="number" min="1" required className="field-input"
             value={sampleSize} onChange={e => setSampleSize(e.target.value === '' ? '' : +e.target.value)} />
+        </div>
+        <div className="md:col-span-3">
+          <label className="field-label">สถานะ / Order Status *</label>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            {(['Accept', 'Accept Lot', 'Reject'] as const).map(s => (
+              <button type="button" key={s}
+                onClick={() => setOrderStatus(s)}
+                className={`rounded-md px-3 py-2.5 text-sm font-semibold transition border ${
+                  orderStatus === s
+                    ? s === 'Reject'
+                      ? 'bg-error text-white border-error shadow-ambient'
+                      : 'bg-primary text-white border-primary shadow-ambient'
+                    : 'bg-surface-lowest border-outline-variant/40 text-on-surface-variant hover:bg-surface-low'
+                }`}>
+                {s === 'Accept' && 'ผ่าน / Accept'}
+                {s === 'Accept Lot' && 'รับ Lot / Accept Lot'}
+                {s === 'Reject' && 'ไม่ผ่าน / Reject'}
+              </button>
+            ))}
+          </div>
+          {orderStatus === 'Reject' && (
+            <p className="mt-2 text-xs text-error">
+              ⚠ เมื่อบันทึก จะสร้าง NCR (Non-Conformance Report) อัตโนมัติ / NCR will be auto-created
+            </p>
+          )}
         </div>
       </section>
 
       {/* Defects */}
       <section className="section">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-display font-bold text-lg">รายการของเสีย</h2>
+          <h2 className="font-display font-bold text-lg">รายการของเสีย / Defect List</h2>
           <div className="flex gap-2 text-xs">
             <span className="chip">Critical: <b className="ml-1 text-on-surface">{totals.crit}</b></span>
             <span className="chip">Major: <b className="ml-1 text-on-surface">{totals.maj}</b></span>
             <span className="chip">Minor: <b className="ml-1 text-on-surface">{totals.min}</b></span>
-            <span className="chip chip-active">รวม: <b className="ml-1">{totals.tot}</b></span>
+            <span className="chip chip-active">รวม/Total: <b className="ml-1">{totals.tot}</b></span>
           </div>
         </div>
 
         <div className="relative">
-          <input className="field-input" placeholder="ค้นหารหัสของเสีย หรือชื่ออาการ…"
+          <input className="field-input" placeholder="ค้นหารหัสของเสีย / Search defect code or symptom… (เลือกได้หลายอัน)"
             value={defectQuery} onChange={e => setDefectQuery(e.target.value)} />
           {defectQuery && (
-            <div className="absolute z-10 mt-1 w-full rounded-md bg-surface-lowest shadow-ambient max-h-72 overflow-auto">
-              {filteredDefects.map(d => (
-                <button type="button" key={d.defect_code} onClick={() => addDefect(d)}
-                  className="block w-full text-left px-4 py-2 hover:bg-surface-low">
-                  <span className="font-mono text-xs text-on-surface-variant mr-2">{d.defect_code}</span>
-                  <span>{d.symptom}</span>
-                </button>
-              ))}
+            <div className="absolute z-10 mt-1 w-full rounded-md bg-surface-lowest shadow-ambient max-h-80 overflow-auto">
+              <div className="flex items-center justify-between px-4 py-2 bg-surface-low sticky top-0 gap-2">
+                <span className="text-xs text-on-surface-variant">
+                  เลือกแล้ว / Selected: {staging.length} อาการ / symptom(s)
+                </span>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => { setStaging([]); setDefectQuery(''); }}
+                    className="text-xs text-on-surface-variant hover:underline">ยกเลิก / Cancel</button>
+                  <button type="button" onClick={addGroup} disabled={staging.length === 0}
+                    className="text-xs text-primary font-semibold hover:underline disabled:opacity-40">
+                    เพิ่มในรายการ / Add ({staging.length})
+                  </button>
+                </div>
+              </div>
+              {filteredDefects.map(d => {
+                const selected = staging.some(x => x.code === d.defect_code);
+                return (
+                  <button type="button" key={d.defect_code} onClick={() => toggleStaging(d)}
+                    className={`flex items-center gap-3 w-full text-left px-4 py-2 hover:bg-surface-low ${selected ? 'bg-primary-container/50' : ''}`}>
+                    <span className={`h-4 w-4 rounded border-2 flex items-center justify-center shrink-0 ${selected ? 'bg-primary border-primary text-white' : 'border-outline-variant'}`}>
+                      {selected && <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>}
+                    </span>
+                    <span className="font-mono text-xs text-on-surface-variant">{d.defect_code}</span>
+                    <span className="text-sm flex-1 truncate">{d.symptom}</span>
+                  </button>
+                );
+              })}
               {filteredDefects.length === 0 && <div className="px-4 py-3 text-sm text-on-surface-variant">ไม่พบ</div>}
             </div>
           )}
@@ -283,10 +374,14 @@ export default function QCEntry() {
           <div className="mt-4 space-y-3">
             {details.map((d, i) => (
               <div key={i} className="bg-surface-lowest rounded-md p-4 space-y-3">
-                <div className="grid grid-cols-12 gap-3 items-center">
+                <div className="grid grid-cols-12 gap-3 items-start">
                   <div className="col-span-5">
-                    <div className="font-mono text-xs text-on-surface-variant">{d.defect_code}</div>
-                    <div className="text-sm">{d.symptom}</div>
+                    <div className="font-mono text-xs text-on-surface-variant">
+                      {d.defects.map(x => x.code).join(', ')}
+                    </div>
+                    <div className="text-sm">
+                      {d.defects.map(x => x.symptom).join(', ')}
+                    </div>
                   </div>
                   <div className="col-span-3">
                     <select className="field-select text-sm" value={d.critical_rank}
@@ -301,7 +396,7 @@ export default function QCEntry() {
                       value={d.quantity} onChange={e => updDetail(i, { quantity: +e.target.value })} />
                   </div>
                   <button type="button" onClick={() => rmDetail(i)}
-                    className="col-span-2 text-xs text-error hover:underline text-right">ลบ</button>
+                    className="col-span-2 text-xs text-error hover:underline text-right pt-2">ลบ / Del</button>
                 </div>
                 {/* Image upload 1-3 */}
                 <div className="flex items-center gap-2 flex-wrap">
@@ -336,7 +431,7 @@ export default function QCEntry() {
       </section>
 
       <section className="section">
-        <label className="field-label">หมายเหตุ</label>
+        <label className="field-label">หมายเหตุ / Remarks</label>
         <textarea rows={3} className="field-input" value={note} onChange={e => setNote(e.target.value)} />
       </section>
 
@@ -344,7 +439,7 @@ export default function QCEntry() {
 
       <div className="flex justify-end gap-3">
         <button type="submit" disabled={saving} className="btn-primary">
-          {saving ? 'กำลังบันทึก…' : 'บันทึก'}
+          {saving ? 'กำลังบันทึก… / Saving…' : 'บันทึก / Save'}
         </button>
       </div>
     </form>

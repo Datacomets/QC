@@ -5,10 +5,12 @@ dist/
 .DS_Store
 *.log
 .vite/
+*.tsbuildinfo
 web/dist/
 web/node_modules/
 
 # Business data files (contain internal info — do not commit)
 *.xlsx
+*.docx
 Sup/
 .claude/
