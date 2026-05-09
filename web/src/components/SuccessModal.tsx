@@ -1,4 +1,4 @@
-import { fmtDate } from '../lib/utils';
+import { fmtDate, getProductType } from '../lib/utils';
 
 interface DefectSummary {
   defect_code: string;
@@ -61,6 +61,7 @@ export default function SuccessModal({ order, onClose }: Props) {
             <Field label="วันที่ / Date" value={fmtDate(order.order_date)} />
             <Field label="รหัส SAP / SAP Code" value={order.sap_code} />
             <Field label="รายละเอียด / Description" value={order.material_description} className="col-span-2" />
+            <Field label="ประเภท / Type" value={getProductType(order.sap_code)} />
             <Field label="แบรนด์ / Brand" value={order.brand} />
             <Field label="ฝ่ายขาย / Sales" value={order.sales} />
             <Field label="SCM" value={order.scm} />

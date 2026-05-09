@@ -1,6 +1,7 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import { parseSapCode } from '../lib/utils';
 import SuccessModal, { OrderSummary } from '../components/SuccessModal';
 
 type Rank = 'Critical' | 'Major' | 'Minor';
@@ -260,10 +261,23 @@ export default function QCEntry() {
         </div>
         <div className="md:col-span-2">
           <label className="field-label">รหัส SAP / SAP Code</label>
-          <input className="field-input" value={sapCode} onChange={e => setSapCode(e.target.value)} placeholder="เช่น 1110001" />
+          <input className="field-input" value={sapCode} onChange={e => setSapCode(e.target.value)} placeholder="เช่น 42741000 หรือ 42741000-1" />
         </div>
         <Display label="รายละเอียดสินค้า / Description" value={material?.description} className="md:col-span-3" />
-        <Display label="กลุ่มสินค้า / Category" value={material?.product_category} />
+        {/* SAP breakdown — derived from sap_code */}
+        {(() => {
+          const p = parseSapCode(sapCode);
+          return <>
+            <Display label="ประเภท / Item Type"          value={p.itemType || null} />
+            <Display label="ที่มา / Item Source"          value={p.itemSource || null} />
+            <Display label="หมวด SAP / Item Category"     value={p.itemCategory || null} />
+            <Display label="กลุ่ม SAP / Item Group"       value={p.itemGroup || null} />
+            <Display label="กลุ่มย่อย / Sub-Item Group"   value={p.subItemGroup || null} />
+            <Display label="Running No"                   value={p.runningNo || null} />
+            <Display label="Revision"                     value={p.revision || null} />
+          </>;
+        })()}
+        <Display label="กลุ่มสินค้า (Master) / Product Category" value={material?.product_category} />
         <Display label="แบรนด์ / Brand" value={material?.brand} />
         <div>
           <label className="field-label">ฝ่ายขาย / Sales</label>

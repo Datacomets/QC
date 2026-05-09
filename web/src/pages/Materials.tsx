@@ -1,7 +1,7 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { fmtDate } from '../lib/utils';
+import { fmtDate, getProductType } from '../lib/utils';
 import * as XLSX from 'xlsx';
 
 interface Material {
@@ -52,6 +52,7 @@ export default function Materials() {
 
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
   const [sortField, setSortField] = useState<SortField>('sap_code');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
@@ -105,6 +106,9 @@ export default function Materials() {
     if (categoryFilter) {
       list = list.filter(m => m.product_category === categoryFilter);
     }
+    if (typeFilter) {
+      list = list.filter(m => getProductType(m.sap_code) === typeFilter);
+    }
     list = [...list].sort((a, b) => {
       const av = String(a[sortField] ?? '').toLowerCase();
       const bv = String(b[sortField] ?? '').toLowerCase();
@@ -113,7 +117,7 @@ export default function Materials() {
       return 0;
     });
     return list;
-  }, [materials, search, categoryFilter, sortField, sortDir]);
+  }, [materials, search, categoryFilter, typeFilter, sortField, sortDir]);
 
   const toggleSort = (f: SortField) => {
     if (sortField === f) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -413,6 +417,15 @@ export default function Materials() {
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
+          <select className="field-select max-w-[140px]" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
+            <option value="">ทุกประเภท / All Types</option>
+            <option value="FG">FG (Finished)</option>
+            <option value="SG">SG (Semi-FG)</option>
+            <option value="Bulk">Bulk</option>
+            <option value="PK">PK (Packaging)</option>
+            <option value="RM">RM (Raw Material)</option>
+            <option value="Other">Other</option>
+          </select>
           <select className="field-select max-w-[220px]" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
             <option value="">ทุกหมวด / All Categories</option>
             {categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
@@ -433,6 +446,7 @@ export default function Materials() {
                 <thead className="bg-surface-mid sticky top-0 z-10">
                   <tr className="text-left text-[11px] uppercase tracking-wide text-on-surface-variant">
                     <th className="px-3 py-2"><SortHeader field="sap_code" label="Material ID" /></th>
+                    <th className="px-3 py-2 whitespace-nowrap">ประเภท / Type</th>
                     <th className="px-3 py-2"><SortHeader field="description" label="Description" /></th>
                     <th className="px-3 py-2"><SortHeader field="product_category" label="Product Category" /></th>
                     <th className="px-3 py-2"><SortHeader field="base_uom" label="Base UoM" /></th>
@@ -444,6 +458,7 @@ export default function Materials() {
                   {filtered.slice(0, 1000).map(m => (
                     <tr key={m.sap_code} className="border-t border-outline-variant/15 hover:bg-surface-low">
                       <td className="px-3 py-1.5 font-mono">{m.sap_code}</td>
+                      <td className="px-3 py-1.5"><span className="chip text-[10px]">{getProductType(m.sap_code) || '—'}</span></td>
                       <td className="px-3 py-1.5">{m.description || '—'}</td>
                       <td className="px-3 py-1.5">{m.product_category || '—'}</td>
                       <td className="px-3 py-1.5">{m.base_uom || '—'}</td>

@@ -312,7 +312,14 @@ interface UserRow {
   role: string;
 }
 
-const DEFAULT_ROLES = ['admin', 'qc_admin', 'operator'];
+const DEFAULT_ROLES = ['admin', 'qc_admin', 'operator', 'viewer'];
+
+const ROLE_LABELS: Record<string, string> = {
+  admin:    'admin (Admin System) — ทุกสิทธิ์',
+  qc_admin: 'qc_admin (QC Admin) — จัดการ + อนุมัติ',
+  operator: 'operator (QC Staff) — บันทึก QC',
+  viewer:   'viewer — ดูอย่างเดียว'
+};
 
 function UsersPane() {
   const { profile: me } = useAuth();
@@ -437,10 +444,11 @@ function UsersPane() {
               <Field label="Email *" value={editing.email} onChange={v => setEditing({ ...editing, email: v })} placeholder="user@cometsintertrade.com" />
             )}
             <Field label="Full Name" value={editing.full_name} onChange={v => setEditing({ ...editing, full_name: v })} />
-            <ComboField label="Role *" value={editing.role || 'operator'}
-              options={Array.from(new Set([...DEFAULT_ROLES, ...rows.map(r => r.role).filter(Boolean)]))}
+            <RoleSelect
+              value={editing.role || 'operator'}
+              extraOptions={rows.map(r => r.role).filter(Boolean)}
               onChange={v => setEditing({ ...editing, role: v })}
-              placeholder="เลือกหรือพิมพ์ role ใหม่" />
+            />
             {editing._isNew && (
               <Field label="Password *"
                 value={editing.password} onChange={v => setEditing({ ...editing, password: v })}
@@ -493,6 +501,45 @@ function SelectField({ label, value, options, onChange }: { label: string; value
       <select className="field-select" value={value} onChange={e => onChange(e.target.value)}>
         {options.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
+    </div>
+  );
+}
+
+function RoleSelect({ value, extraOptions, onChange }: { value: string; extraOptions: string[]; onChange: (v: string) => void }) {
+  const allRoles = Array.from(new Set([...DEFAULT_ROLES, ...extraOptions]));
+  const isCustom = !allRoles.includes(value);
+  const [showCustom, setShowCustom] = useState<boolean>(isCustom);
+
+  return (
+    <div>
+      <label className="field-label">Role *</label>
+      <select
+        className="field-select"
+        value={showCustom ? '__custom__' : value}
+        onChange={e => {
+          if (e.target.value === '__custom__') {
+            setShowCustom(true);
+            onChange('');
+          } else {
+            setShowCustom(false);
+            onChange(e.target.value);
+          }
+        }}
+      >
+        {allRoles.map(r => (
+          <option key={r} value={r}>{ROLE_LABELS[r] || r}</option>
+        ))}
+        <option value="__custom__">+ Role อื่น (กรอกเอง) / Custom role…</option>
+      </select>
+      {showCustom && (
+        <input
+          className="field-input mt-2"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder="พิมพ์ชื่อ role ใหม่ / Type new role name"
+          autoFocus
+        />
+      )}
     </div>
   );
 }

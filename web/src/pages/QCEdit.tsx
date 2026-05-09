@@ -2,6 +2,7 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import { sapBreakdownLabel } from '../lib/utils';
 
 type Rank = 'Critical' | 'Major' | 'Minor';
 interface DetailRow { defect_code: string; symptom: string; critical_rank: Rank; quantity: number; existingImages: string[]; newImages: { file: File; preview: string }[]; }
@@ -214,6 +215,9 @@ export default function QCEdit() {
         <div>
           <label className="field-label">รหัส SAP / SAP Code</label>
           <input className="field-input" value={sapCode} onChange={e => setSapCode(e.target.value)} />
+          {sapBreakdownLabel(sapCode) && (
+            <p className="text-[11px] text-on-surface-variant mt-1">🏷️ {sapBreakdownLabel(sapCode)}</p>
+          )}
         </div>
         <div>
           <label className="field-label">ผลตรวจ / Inspection Result</label>
