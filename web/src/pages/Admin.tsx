@@ -1,8 +1,9 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { ChangeEvent, DragEvent, FormEvent, useEffect, useRef, useState } from 'react';
+import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 
-type Tab = 'suppliers' | 'defects' | 'users';
+type Tab = 'suppliers' | 'defects' | 'brand_resp' | 'users';
 
 // Official standard list from SD-QC-1909-004-00 Rev02 (18-4-25)
 const OFFICIAL_TYPES = [
@@ -23,20 +24,30 @@ const OFFICIAL_REASONS = [
 ];
 
 export default function Admin() {
+  const { profile } = useAuth();
+  const isAdminSystem = profile?.role === 'admin';
   const [tab, setTab] = useState<Tab>('suppliers');
+
+  // Guard: if qc_admin happens to land on brand_resp (e.g. via stale state), redirect to suppliers
+  useEffect(() => {
+    if (tab === 'brand_resp' && !isAdminSystem) setTab('suppliers');
+  }, [tab, isAdminSystem]);
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="font-display text-3xl font-bold tracking-tight">จัดการระบบ / Admin</h1>
         <p className="text-sm text-on-surface-variant mt-1">จัดการ Master Data และผู้ใช้ / Manage Master Data & Users</p>
       </div>
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         <TabBtn id="suppliers" tab={tab} setTab={setTab}>ผู้จัดจำหน่าย / Suppliers</TabBtn>
         <TabBtn id="defects" tab={tab} setTab={setTab}>รหัสของเสีย / Defect Codes</TabBtn>
+        {isAdminSystem && <TabBtn id="brand_resp" tab={tab} setTab={setTab}>Brand → Sales/SCM</TabBtn>}
         <TabBtn id="users" tab={tab} setTab={setTab}>ผู้ใช้ / Users</TabBtn>
       </div>
       {tab === 'suppliers' && <SuppliersPane />}
       {tab === 'defects' && <DefectsPane />}
+      {tab === 'brand_resp' && isAdminSystem && <BrandResponsibilitiesPane />}
       {tab === 'users' && <UsersPane />}
     </div>
   );
@@ -303,6 +314,447 @@ function DefectsPane() {
 }
 
 /* =========================================================================
+ * BRAND RESPONSIBILITIES (Brand → Sales / SCM)
+ * ======================================================================= */
+interface BrandRespRow {
+  brand: string;
+  sales: string | null;
+  scm: string | null;
+  updated_at?: string;
+}
+
+type PasteStatus = 'NEW' | 'UPDATE' | 'UNCHANGED' | 'ERROR';
+interface PasteRow {
+  brand: string;
+  sales: string | null;
+  scm: string | null;
+  status: PasteStatus;
+  before?: { sales: string | null; scm: string | null };
+  error?: string;
+}
+
+function BrandResponsibilitiesPane() {
+  const [rows, setRows] = useState<BrandRespRow[]>([]);
+  const [q, setQ] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<(Partial<BrandRespRow> & { _originalBrand?: string; _isNew?: boolean }) | null>(null);
+  const [msg, setMsg] = useState('');
+  // Bulk paste/upload state
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const [pastePreview, setPastePreview] = useState<PasteRow[] | null>(null);
+  const [pasteSaving, setPasteSaving] = useState(false);
+  const [pasteMsg, setPasteMsg] = useState('');
+  const [fileInfo, setFileInfo] = useState<{ name: string; sheet: string; rowCount: number } | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase.from('brand_responsibilities').select('*').order('brand').limit(2000);
+    setRows((data as BrandRespRow[]) || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const filtered = rows.filter(r =>
+    !q || r.brand.toLowerCase().includes(q.toLowerCase()) ||
+    (r.sales || '').toLowerCase().includes(q.toLowerCase()) ||
+    (r.scm || '').toLowerCase().includes(q.toLowerCase()));
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!editing) return;
+    setMsg('');
+    const payload = {
+      brand: (editing.brand || '').trim(),
+      sales: (editing.sales || '').trim() || null,
+      scm: (editing.scm || '').trim() || null,
+    };
+    if (!payload.brand) { setMsg('กรุณากรอกชื่อ Brand'); return; }
+    if (!payload.sales && !payload.scm) { setMsg('กรุณากรอก Sales หรือ SCM อย่างน้อย 1 ฟิลด์'); return; }
+
+    if (editing._originalBrand && editing._originalBrand !== payload.brand) {
+      // Brand renamed (PK changed): delete old, insert new
+      await supabase.from('brand_responsibilities').delete().eq('brand', editing._originalBrand);
+    }
+    const { error } = await supabase.from('brand_responsibilities').upsert(payload, { onConflict: 'brand' });
+    if (error) { setMsg('บันทึกไม่สำเร็จ: ' + error.message); return; }
+    setEditing(null);
+    await load();
+  };
+
+  const remove = async (r: BrandRespRow) => {
+    if (!confirm(`ลบ Brand "${r.brand}"?`)) return;
+    const { error } = await supabase.from('brand_responsibilities').delete().eq('brand', r.brand);
+    if (error) { alert('ลบไม่สำเร็จ: ' + error.message); return; }
+    await load();
+  };
+
+  const withScm = rows.filter(r => r.scm && r.scm.trim()).length;
+  const withSales = rows.filter(r => r.sales && r.sales.trim()).length;
+
+  // ----- Bulk Paste / Upload -----
+  // Classify rows against existing DB state — shared by paste and file upload
+  const classifyRows = (input: { brand: string; sales: string | null; scm: string | null }[]): PasteRow[] => {
+    const existing = new Map(rows.map(r => [r.brand, r]));
+    const seen = new Set<string>();
+    const result: PasteRow[] = [];
+    for (const r of input) {
+      const brand = r.brand.trim();
+      const sales = r.sales?.trim() || null;
+      const scm = r.scm?.trim() || null;
+
+      if (!brand) {
+        result.push({ brand, sales, scm, status: 'ERROR', error: 'ไม่มี Brand' });
+        continue;
+      }
+      if (seen.has(brand)) {
+        result.push({ brand, sales, scm, status: 'ERROR', error: 'ซ้ำในชุด' });
+        continue;
+      }
+      seen.add(brand);
+
+      const cur = existing.get(brand);
+      if (!cur) {
+        result.push({ brand, sales, scm, status: 'NEW' });
+      } else if ((cur.sales || null) !== sales || (cur.scm || null) !== scm) {
+        result.push({ brand, sales, scm, status: 'UPDATE', before: { sales: cur.sales, scm: cur.scm } });
+      } else {
+        result.push({ brand, sales, scm, status: 'UNCHANGED' });
+      }
+    }
+    return result;
+  };
+
+  const parsePaste = () => {
+    setPasteMsg('');
+    setFileInfo(null);
+    const text = pasteText.trim();
+    if (!text) { setPasteMsg('กรุณาวาง (paste) ข้อมูล'); setPastePreview(null); return; }
+
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (lines.length === 0) { setPasteMsg('ไม่พบข้อมูล'); setPastePreview(null); return; }
+
+    const firstLine = lines[0];
+    const delim = firstLine.includes('\t') ? '\t' : firstLine.includes(',') ? ',' : firstLine.includes('|') ? '|' : '\t';
+    const splitLine = (l: string) => l.split(delim).map(c => c.trim());
+    const first = splitLine(firstLine).map(c => c.toLowerCase());
+    const hasHeader = first.some(c => c === 'brand') && first.some(c => c.includes('sales') || c.includes('scm'));
+    const dataLines = hasHeader ? lines.slice(1) : lines;
+
+    setPastePreview(classifyRows(dataLines.map(line => {
+      const c = splitLine(line);
+      return { brand: c[0] || '', sales: c[1] || null, scm: c[2] || null };
+    })));
+  };
+
+  const handleFile = async (file: File) => {
+    setPasteMsg('');
+    setPasteText('');
+    setPastePreview(null);
+    setFileInfo(null);
+
+    if (!/\.(xlsx|xls|csv)$/i.test(file.name)) {
+      setPasteMsg('รองรับเฉพาะ .xlsx / .xls / .csv'); return;
+    }
+
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf);
+      // Prefer "Sales Respon" sheet, else first sheet
+      const sheetName = wb.SheetNames.find(n => /sales\s*respon/i.test(n)) || wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
+
+      if (rawRows.length === 0) { setPasteMsg('ไฟล์ว่างเปล่า'); return; }
+
+      // Find columns by case-insensitive header
+      const keys = Object.keys(rawRows[0]);
+      const brandKey = keys.find(k => /^brand$/i.test(k.trim()));
+      const salesKey = keys.find(k => /^sales$/i.test(k.trim()));
+      const scmKey = keys.find(k => /^scm$/i.test(k.trim()));
+
+      if (!brandKey) {
+        setPasteMsg(`ไม่พบคอลัมน์ "Brand" ในไฟล์ (sheet: ${sheetName})`); return;
+      }
+
+      const mapped = rawRows.map(r => ({
+        brand: String(r[brandKey] ?? '').trim(),
+        sales: salesKey ? (String(r[salesKey] ?? '').trim() || null) : null,
+        scm: scmKey ? (String(r[scmKey] ?? '').trim() || null) : null
+      }));
+
+      setFileInfo({ name: file.name, sheet: sheetName, rowCount: rawRows.length });
+      setPastePreview(classifyRows(mapped));
+    } catch (err) {
+      setPasteMsg('อ่านไฟล์ไม่สำเร็จ: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  const onFileInput = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+    e.target.value = ''; // reset so same file can be re-uploaded
+  };
+
+  const onDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFile(file);
+  };
+
+  const applyPaste = async () => {
+    if (!pastePreview) return;
+    const toApply = pastePreview
+      .filter(r => r.status === 'NEW' || r.status === 'UPDATE')
+      .map(r => ({ brand: r.brand, sales: r.sales, scm: r.scm }));
+    if (toApply.length === 0) { setPasteMsg('ไม่มีอะไรต้องบันทึก'); return; }
+
+    setPasteSaving(true);
+    setPasteMsg('');
+    const { error } = await supabase.from('brand_responsibilities').upsert(toApply, { onConflict: 'brand' });
+    setPasteSaving(false);
+    if (error) { setPasteMsg('บันทึกไม่สำเร็จ: ' + error.message); return; }
+    setPasteOpen(false);
+    setPasteText('');
+    setPastePreview(null);
+    await load();
+  };
+
+  const closePaste = () => {
+    setPasteOpen(false);
+    setPasteText('');
+    setPastePreview(null);
+    setPasteMsg('');
+    setFileInfo(null);
+  };
+
+  const pasteSummary = pastePreview ? {
+    new: pastePreview.filter(r => r.status === 'NEW').length,
+    update: pastePreview.filter(r => r.status === 'UPDATE').length,
+    unchanged: pastePreview.filter(r => r.status === 'UNCHANGED').length,
+    error: pastePreview.filter(r => r.status === 'ERROR').length,
+  } : null;
+
+  return (
+    <section className="card">
+      <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
+        <div>
+          <h2 className="font-display font-bold text-lg">Brand → Sales / SCM ({rows.length})</h2>
+          <p className="text-xs text-on-surface-variant mt-0.5">
+            ใช้ auto-fill ในหน้าบันทึก QC โดย match จาก <span className="font-mono">materials.brand</span> (รองรับ prefix * โดย normalize อัตโนมัติ)
+          </p>
+          <div className="flex gap-2 text-xs mt-2">
+            <span className="chip">มี Sales: <b className="ml-1">{withSales}</b></span>
+            <span className="chip">มี SCM: <b className="ml-1">{withScm}</b></span>
+            <span className="chip">SCM ว่าง: <b className="ml-1 text-error">{rows.length - withScm}</b></span>
+          </div>
+        </div>
+        <div className="flex gap-2 items-center flex-wrap">
+          <input className="field-input max-w-sm" placeholder="ค้นหา Brand / Sales / SCM…"
+            value={q} onChange={e => setQ(e.target.value)} />
+          <button className="btn-secondary text-sm whitespace-nowrap" onClick={() => setPasteOpen(true)}>
+            📤 อัปโหลด / Paste
+          </button>
+          <button className="btn-primary text-sm whitespace-nowrap" onClick={() => setEditing({ _isNew: true })}>
+            + เพิ่ม / Add Brand
+          </button>
+        </div>
+      </div>
+
+      {loading ? <p className="text-sm text-on-surface-variant">กำลังโหลด…</p> : (
+        <div className="max-h-[60vh] overflow-auto">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-surface-lowest">
+              <tr className="text-left text-xs uppercase tracking-wide text-on-surface-variant">
+                <th className="py-2">Brand</th>
+                <th>Sales</th>
+                <th>SCM</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.slice(0, 500).map(r => (
+                <tr key={r.brand} className="border-t border-outline-variant/15 hover:bg-surface-low/30">
+                  <td className="py-2 font-mono font-semibold">{r.brand}</td>
+                  <td>{r.sales || <span className="text-on-surface-variant italic">— ว่าง</span>}</td>
+                  <td>{r.scm || <span className="text-on-surface-variant italic">— ว่าง</span>}</td>
+                  <td className="text-right whitespace-nowrap">
+                    <button className="btn-tertiary text-xs py-1 px-2"
+                      onClick={() => setEditing({ ...r, _originalBrand: r.brand })}>แก้ไข</button>
+                    <button className="text-xs text-error hover:underline ml-2"
+                      onClick={() => remove(r)}>ลบ</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {filtered.length > 500 && (
+            <p className="text-xs text-on-surface-variant mt-2">แสดง 500 จาก {filtered.length} — กรองให้แคบลง</p>
+          )}
+        </div>
+      )}
+
+      {editing && (
+        <EditModal title={editing._isNew ? 'เพิ่ม Brand' : `แก้ไข Brand: ${editing._originalBrand}`}
+                   onClose={() => { setEditing(null); setMsg(''); }}>
+          <form onSubmit={save} className="space-y-4">
+            <Field label="Brand *" value={editing.brand}
+              onChange={v => setEditing({ ...editing, brand: v })}
+              placeholder="เช่น 2P, ALESE — ระบบจะ normalize ตอน match (ตัด * นำหน้า)" />
+            <Field label="Sales" value={editing.sales}
+              onChange={v => setEditing({ ...editing, sales: v })}
+              placeholder="ชื่อผู้รับผิดชอบฝ่ายขาย" />
+            <Field label="SCM" value={editing.scm}
+              onChange={v => setEditing({ ...editing, scm: v })}
+              placeholder="ชื่อผู้รับผิดชอบ SCM" />
+            {msg && <p className="text-sm text-error">{msg}</p>}
+            <div className="flex gap-2 justify-end pt-2">
+              <button type="button" onClick={() => { setEditing(null); setMsg(''); }} className="btn-secondary">ยกเลิก</button>
+              <button className="btn-primary">บันทึก</button>
+            </div>
+          </form>
+        </EditModal>
+      )}
+
+      {pasteOpen && (
+        <EditModal title="📋 เพิ่มหลายรายการ / Bulk Import" onClose={closePaste}>
+          <div className="space-y-4">
+            {/* File drop zone */}
+            <div>
+              <label className="field-label">📤 อัปโหลดไฟล์ / Upload File</label>
+              <div
+                onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={onDrop}
+                onClick={() => fileInputRef.current?.click()}
+                className={`rounded-md border-2 border-dashed transition cursor-pointer text-center py-6 px-4 ${
+                  dragOver ? 'border-primary bg-primary-container/40' : 'border-outline-variant/40 bg-surface-low hover:bg-surface-mid'
+                }`}>
+                <div className="text-2xl mb-1">{dragOver ? '⬇️' : '📁'}</div>
+                <div className="text-sm font-medium">
+                  {dragOver ? 'วางไฟล์ได้เลย / Drop here' : 'ลากไฟล์ลงที่นี่ หรือ คลิกเพื่อเลือก'}
+                </div>
+                <div className="text-[11px] text-on-surface-variant mt-1">
+                  รองรับ .xlsx, .xls, .csv — ระบบจะหา sheet "Sales Respon" ก่อน (ถ้าไม่เจอใช้ sheet แรก)
+                </div>
+                <div className="text-[11px] text-on-surface-variant">
+                  คอลัมน์ต้องมี: <b>Brand</b> | <b>Sales</b> | <b>SCM</b>
+                </div>
+                <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onFileInput} />
+              </div>
+              {fileInfo && (
+                <div className="mt-2 rounded-md bg-primary-container/30 px-3 py-2 text-xs">
+                  📄 <b>{fileInfo.name}</b> · sheet: <span className="font-mono">{fileInfo.sheet}</span> · {fileInfo.rowCount} แถว
+                </div>
+              )}
+            </div>
+
+            <div className="relative flex items-center">
+              <div className="flex-1 border-t border-outline-variant/30"></div>
+              <span className="px-3 text-xs text-on-surface-variant">หรือ / OR</span>
+              <div className="flex-1 border-t border-outline-variant/30"></div>
+            </div>
+
+            {/* Paste textarea */}
+            <div>
+              <label className="field-label">📋 Paste ข้อมูล (Copy จาก Excel/Sheet)</label>
+              <textarea className="field-input font-mono text-xs" rows={6}
+                value={pasteText}
+                onChange={e => { setPasteText(e.target.value); setPastePreview(null); setFileInfo(null); }}
+                placeholder={'Brand\tSales\tSCM\n2P\tภคพรรณ (น้ำเพ็ชร) ชะอุ่ม\tอัมพร (เตย)\nALESE\tขวัญข้าว...\tอัมพร (เตย)'} />
+              <div className="flex gap-2 mt-2">
+                <button type="button" onClick={parsePaste} className="btn-secondary text-sm"
+                  disabled={!pasteText.trim()}>
+                  🔍 ดูตัวอย่างจาก Paste / Parse
+                </button>
+                <button type="button" onClick={() => { setPasteText(''); setPastePreview(null); setFileInfo(null); }}
+                  className="text-xs text-on-surface-variant hover:underline self-center">
+                  ล้าง / Clear
+                </button>
+              </div>
+            </div>
+
+            {pasteSummary && (
+              <div className="flex gap-2 text-xs flex-wrap">
+                <span className="chip bg-primary/10 text-primary">✨ NEW: <b className="ml-1">{pasteSummary.new}</b></span>
+                <span className="chip bg-amber-100 text-amber-800">📝 UPDATE: <b className="ml-1">{pasteSummary.update}</b></span>
+                <span className="chip">✓ UNCHANGED: <b className="ml-1">{pasteSummary.unchanged}</b></span>
+                {pasteSummary.error > 0 && (
+                  <span className="chip bg-error/10 text-error">❌ ERROR: <b className="ml-1">{pasteSummary.error}</b></span>
+                )}
+              </div>
+            )}
+
+            {pastePreview && pastePreview.length > 0 && (
+              <div className="max-h-[40vh] overflow-auto border border-outline-variant/20 rounded">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-surface-low">
+                    <tr className="text-left">
+                      <th className="py-1.5 px-2">Status</th>
+                      <th className="px-2">Brand</th>
+                      <th className="px-2">Sales</th>
+                      <th className="px-2">SCM</th>
+                      <th className="px-2">หมายเหตุ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pastePreview.slice(0, 200).map((r, i) => (
+                      <tr key={i} className="border-t border-outline-variant/15">
+                        <td className="py-1.5 px-2">
+                          <span className={`chip text-[10px] ${
+                            r.status === 'NEW'       ? 'bg-primary/10 text-primary' :
+                            r.status === 'UPDATE'    ? 'bg-amber-100 text-amber-800' :
+                            r.status === 'ERROR'     ? 'bg-error/10 text-error' :
+                            'bg-surface-mid text-on-surface-variant'
+                          }`}>{r.status}</span>
+                        </td>
+                        <td className="px-2 font-mono">{r.brand || '—'}</td>
+                        <td className="px-2">
+                          {r.status === 'UPDATE' && (r.before?.sales || null) !== r.sales ? (
+                            <span><s className="text-on-surface-variant/60">{r.before?.sales || '—'}</s> → <b>{r.sales || '—'}</b></span>
+                          ) : (r.sales || '—')}
+                        </td>
+                        <td className="px-2">
+                          {r.status === 'UPDATE' && (r.before?.scm || null) !== r.scm ? (
+                            <span><s className="text-on-surface-variant/60">{r.before?.scm || '—'}</s> → <b>{r.scm || '—'}</b></span>
+                          ) : (r.scm || '—')}
+                        </td>
+                        <td className="px-2 text-error">{r.error || ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {pastePreview.length > 200 && (
+                  <p className="text-xs text-on-surface-variant p-2">แสดง 200 จาก {pastePreview.length}</p>
+                )}
+              </div>
+            )}
+
+            {pasteMsg && <p className="text-sm text-error">{pasteMsg}</p>}
+
+            <div className="flex gap-2 justify-end pt-2 border-t border-outline-variant/15">
+              <button type="button" onClick={closePaste} className="btn-secondary"
+                disabled={pasteSaving}>ปิด / Close</button>
+              <button type="button" onClick={applyPaste} className="btn-primary"
+                disabled={pasteSaving || !pastePreview ||
+                  (pasteSummary !== null && pasteSummary.new + pasteSummary.update === 0)}>
+                {pasteSaving ? 'กำลังบันทึก…'
+                  : pasteSummary
+                  ? `✓ ยืนยันบันทึก (${pasteSummary.new + pasteSummary.update} รายการ)`
+                  : 'ยืนยันบันทึก / Confirm'}
+              </button>
+            </div>
+          </div>
+        </EditModal>
+      )}
+    </section>
+  );
+}
+
+/* =========================================================================
  * USERS
  * ======================================================================= */
 interface UserRow {
@@ -376,6 +828,7 @@ function UsersPane() {
         });
       } else {
         const patch: any = { id: editing.id };
+        if (editing.email !== undefined) patch.email = editing.email;
         if (editing.password) patch.password = editing.password;
         if (editing.full_name !== undefined) patch.full_name = editing.full_name;
         if (editing.role) patch.role = editing.role;
@@ -440,9 +893,12 @@ function UsersPane() {
       {editing && (
         <EditModal title={editing._isNew ? 'เพิ่ม User' : `แก้ไข User: ${editing.email}`} onClose={() => { setEditing(null); setMsg(''); }}>
           <form onSubmit={save} className="space-y-4">
-            {editing._isNew && (
-              <Field label="Email *" value={editing.email} onChange={v => setEditing({ ...editing, email: v })} placeholder="user@cometsintertrade.com" />
-            )}
+            <Field
+              label={editing._isNew ? 'Email *' : 'Email'}
+              value={editing.email}
+              onChange={v => setEditing({ ...editing, email: v })}
+              placeholder="user@cometsintertrade.com"
+            />
             <Field label="Full Name" value={editing.full_name} onChange={v => setEditing({ ...editing, full_name: v })} />
             <RoleSelect
               value={editing.role || 'operator'}

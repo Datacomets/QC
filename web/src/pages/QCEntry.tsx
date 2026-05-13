@@ -2,7 +2,7 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { parseSapCode } from '../lib/utils';
-import SuccessModal, { OrderSummary } from '../components/SuccessModal';
+import SuccessModal, { OrderDraft } from '../components/SuccessModal';
 
 type Rank = 'Critical' | 'Major' | 'Minor';
 interface Material { sap_code: string; description: string | null; product_category: string | null; brand: string | null; sales: string | null; scm: string | null; }
@@ -34,17 +34,31 @@ export default function QCEntry() {
   const [defectQuery, setDefectQuery] = useState('');
   const [staging, setStaging] = useState<DefectItem[]>([]);
 
-  const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
-  const [successOrder, setSuccessOrder] = useState<OrderSummary | null>(null);
+  const [draft, setDraft] = useState<OrderDraft | null>(null);
+
+  // brand_responsibilities cache: normalized brand key → { sales, scm }
+  const [brandMap, setBrandMap] = useState<Map<string, { sales: string | null; scm: string | null }>>(new Map());
+
+  // Normalize: strip leading *, ", ' / trim / lowercase — to bridge "*BEET" ↔ "BEET"
+  const normalizeBrand = (s: string) => s.replace(/^[*"']+/, '').trim().toLowerCase();
 
   // Lookups
   useEffect(() => {
     supabase.from('defects').select('defect_code,symptom,reason').limit(5000)
       .then(({ data }) => setDefects((data as Defect[]) || []));
+
+    supabase.from('brand_responsibilities').select('brand,sales,scm').then(({ data }) => {
+      const m = new Map<string, { sales: string | null; scm: string | null }>();
+      for (const r of ((data as { brand: string; sales: string | null; scm: string | null }[]) || [])) {
+        const key = normalizeBrand(r.brand || '');
+        if (key) m.set(key, { sales: r.sales, scm: r.scm });
+      }
+      setBrandMap(m);
+    });
   }, []);
 
-  // Resolve SAP → material (debounced)
+  // Resolve SAP → material → brand → brand_responsibilities (cached) → sales/scm (debounced)
   useEffect(() => {
     setMaterial(null);
     const code = sapCode.trim();
@@ -54,11 +68,16 @@ export default function QCEntry() {
         .select('sap_code,description,product_category,brand,sales,scm').eq('sap_code', code).maybeSingle();
       const m = (data as Material) || null;
       setMaterial(m);
-      setSalesVal(m?.sales || '');
-      setScmVal(m?.scm || '');
+
+      // Sales/SCM resolution:
+      //   1. material.brand → normalized → lookup brand_responsibilities (authoritative live source)
+      //   2. fallback to materials.sales/scm (snapshot at material upload time)
+      const br = m?.brand ? brandMap.get(normalizeBrand(m.brand)) : null;
+      setSalesVal(br?.sales || m?.sales || '');
+      setScmVal(br?.scm || m?.scm || '');
     }, 400);
     return () => clearTimeout(t);
-  }, [sapCode]);
+  }, [sapCode, brandMap]);
 
   // Resolve Sup SAP Code → supplier
   useEffect(() => {
@@ -135,78 +154,15 @@ export default function QCEntry() {
     updDetail(detailIdx, { images: imgs });
   };
 
-  const uploadImages = async (orderId: number, detailIdx: number): Promise<string[]> => {
-    const urls: string[] = [];
-    for (const img of details[detailIdx].images) {
-      const ext = img.file.name.split('.').pop() || 'jpg';
-      const path = `${orderId}/${detailIdx}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${ext}`;
-      const { error } = await supabase.storage.from('defect-images').upload(path, img.file);
-      if (!error) {
-        const { data } = supabase.storage.from('defect-images').getPublicUrl(path);
-        urls.push(data.publicUrl);
-      }
-    }
-    return urls;
-  };
-
-  const submit = async (e: FormEvent) => {
+  const submit = (e: FormEvent) => {
     e.preventDefault();
-    setMsg(''); setSaving(true);
+    setMsg('');
     const sample = typeof sampleSize === 'number' ? sampleSize : parseInt(String(sampleSize));
-    if (!sapCode || !sample) { setMsg('กรุณากรอก SAP Code และจำนวนตรวจสอบ'); setSaving(false); return; }
-    if (!orderStatus) { setMsg('กรุณาเลือกสถานะ Order Status'); setSaving(false); return; }
+    if (!sapCode || !sample) { setMsg('กรุณากรอก SAP Code และจำนวนตรวจสอบ'); return; }
+    if (!orderStatus) { setMsg('กรุณาเลือกสถานะ Order Status'); return; }
+    if (!profile?.id) { setMsg('ไม่พบข้อมูลผู้ใช้ — กรุณา login ใหม่'); return; }
 
-    const { data: order, error } = await supabase.from('qc_orders').insert({
-      order_date: orderDate,
-      sap_code: sapCode.trim(),
-      material_description: material?.description,
-      brand: material?.brand, sales: salesVal || null, scm: scmVal || null,
-      sup_code: supplier?.sup_code || null,
-      supplier_name: supplier?.supplier_name,
-      lot_no: lotNo.trim() || null,
-      received_qty: receivedQty === '' ? null : +receivedQty,
-      sample_size: sample,
-      status: orderStatus,
-      note: note.trim() || null,
-      created_by: profile?.id
-    }).select('id, order_no').single();
-
-    if (error || !order) { setMsg('บันทึกไม่สำเร็จ: ' + (error?.message || '')); setSaving(false); return; }
-
-    if (details.length) {
-      const rows = [];
-      for (let i = 0; i < details.length; i++) {
-        const d = details[i];
-        const imageUrls = d.images.length > 0 ? await uploadImages(order.id, i) : [];
-        const primaryCode = d.defects[0]?.code;
-        const combinedSymptom = d.defects.map(df => `${df.code}: ${df.symptom}`).join(', ');
-        rows.push({
-          order_id: order.id,
-          defect_code: primaryCode, symptom: combinedSymptom,
-          critical_rank: d.critical_rank, quantity: +d.quantity,
-          images: imageUrls
-        });
-      }
-      const { error: e2 } = await supabase.from('qc_order_details').insert(rows);
-      if (e2) { setMsg('บันทึกรายการของเสียไม่สำเร็จ: ' + e2.message); setSaving(false); return; }
-    }
-
-    // Fallback: auto-create NCR if status = Reject (in case DB trigger not applied)
-    let ncrNo: string | null = null;
-    if (orderStatus === 'Reject') {
-      const { data: existingNcr } = await supabase.from('ncr_reports').select('ncr_no').eq('order_id', order.id).maybeSingle();
-      if (existingNcr) {
-        ncrNo = existingNcr.ncr_no;
-      } else {
-        const { data: newNcr } = await supabase.from('ncr_reports').insert({
-          order_id: order.id, order_no: order.order_no, created_by: profile?.id
-        }).select('ncr_no').single();
-        ncrNo = newNcr?.ncr_no || null;
-      }
-    }
-
-    const summary: OrderSummary = {
-      order_no: order.order_no,
+    setDraft({
       order_date: orderDate,
       sap_code: sapCode.trim(),
       material_description: material?.description || null,
@@ -217,27 +173,34 @@ export default function QCEntry() {
       supplier_name: supplier?.supplier_name || null,
       lot_no: lotNo.trim() || null,
       received_qty: receivedQty === '' ? null : +receivedQty,
-      sample_size: typeof sampleSize === 'number' ? sampleSize : parseInt(String(sampleSize)),
+      sample_size: sample,
       status: orderStatus,
-      ncr_no: ncrNo,
       note: note.trim() || null,
       details: details.map(d => ({
-        defect_code: d.defects.map(x => x.code).join(', '),
-        symptom: d.defects.map(x => x.symptom).join(', '),
+        defects: d.defects,
         critical_rank: d.critical_rank,
         quantity: d.quantity,
         images: d.images
-      }))
-    };
-    setSuccessOrder(summary);
-    setSaving(false);
-    setSapCode(''); setSupSapCode(''); setSalesVal(''); setScmVal(''); setLotNo(''); setReceivedQty(''); setSampleSize(''); setOrderStatus(''); setNote(''); setDetails([]); setStaging([]);
+      })),
+      created_by: profile.id
+    });
+  };
+
+  const handleSaved = (orderNo: string, ncrNo: string | null) => {
+    setSapCode(''); setSupSapCode(''); setSalesVal(''); setScmVal('');
+    setLotNo(''); setReceivedQty(''); setSampleSize(''); setOrderStatus('');
+    setNote(''); setDetails([]); setStaging([]);
+    setMsg(`✅ บันทึก Order ${orderNo} สำเร็จ${ncrNo ? ` — NCR: ${ncrNo}` : ''}`);
   };
 
   return (
     <>
-    {successOrder && (
-      <SuccessModal order={successOrder} onClose={() => setSuccessOrder(null)} />
+    {draft && (
+      <SuccessModal
+        draft={draft}
+        onClose={() => setDraft(null)}
+        onSaved={(orderNo, ncrNo) => handleSaved(orderNo, ncrNo)}
+      />
     )}
     <form onSubmit={submit} className={`space-y-6 ${pass === null ? '' : pass ? 'precision-strip-pass' : 'precision-strip-fail'}`}>
       <div className="flex items-baseline justify-between">
@@ -279,14 +242,8 @@ export default function QCEntry() {
         })()}
         <Display label="กลุ่มสินค้า (Master) / Product Category" value={material?.product_category} />
         <Display label="แบรนด์ / Brand" value={material?.brand} />
-        <div>
-          <label className="field-label">ฝ่ายขาย / Sales</label>
-          <input className="field-input" value={salesVal} onChange={e => setSalesVal(e.target.value)} />
-        </div>
-        <div>
-          <label className="field-label">SCM</label>
-          <input className="field-input" value={scmVal} onChange={e => setScmVal(e.target.value)} />
-        </div>
+        <Display label="ฝ่ายขาย / Sales" value={salesVal || null} />
+        <Display label="SCM" value={scmVal || null} />
 
         <div>
           <label className="field-label">รหัส Sup SAP / Vendor Code</label>
@@ -452,8 +409,8 @@ export default function QCEntry() {
       {msg && <div className={`rounded-md px-3 py-2 text-sm ${msg.startsWith('✅') ? 'bg-primary-container text-on-primary-container' : 'bg-error-container text-error'}`}>{msg}</div>}
 
       <div className="flex justify-end gap-3">
-        <button type="submit" disabled={saving} className="btn-primary">
-          {saving ? 'กำลังบันทึก… / Saving…' : 'บันทึก / Save'}
+        <button type="submit" className="btn-primary">
+          ตรวจสอบและบันทึก / Review &amp; Save
         </button>
       </div>
     </form>

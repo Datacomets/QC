@@ -74,12 +74,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'PATCH') {
-      const { id, password, full_name, role } = req.body as {
-        id: string; password?: string; full_name?: string; role?: string;
+      const { id, email, password, full_name, role } = req.body as {
+        id: string; email?: string; password?: string; full_name?: string; role?: string;
       };
       if (!id) return res.status(400).json({ error: 'Missing id' });
 
+      // Basic email validation if provided
+      if (email !== undefined) {
+        const trimmed = email.trim();
+        if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+          return res.status(400).json({ error: 'อีเมลไม่ถูกต้อง / Invalid email' });
+        }
+      }
+
       const patch: any = {};
+      if (email) { patch.email = email.trim(); patch.email_confirm = true; }
       if (password) patch.password = password;
       if (full_name !== undefined || role !== undefined) {
         patch.user_metadata = { full_name, role };
@@ -89,6 +98,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (error) return res.status(400).json({ error: error.message });
       }
       const profilePatch: any = {};
+      if (email !== undefined) profilePatch.email = email.trim();
       if (full_name !== undefined) profilePatch.full_name = full_name;
       if (role !== undefined) profilePatch.role = role;
       if (Object.keys(profilePatch).length) {
