@@ -780,6 +780,28 @@ function UsersPane() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<(Partial<UserRow> & { password?: string; _isNew?: boolean }) | null>(null);
   const [msg, setMsg] = useState('');
+  const [pwBanner, setPwBanner] = useState<{ email: string; password: string } | null>(null);
+
+  // Generate a random password (easy to read, ~12 chars, no confusing chars like 0/O/l/I)
+  const generatePassword = () => {
+    const letters = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz';
+    const digits = '23456789';
+    const specials = '!@#$';
+    const pick = (s: string, n: number) =>
+      Array.from({ length: n }, () => s[Math.floor(Math.random() * s.length)]).join('');
+    const pwd = (pick(letters, 7) + pick(digits, 4) + pick(specials, 1))
+      .split('').sort(() => Math.random() - 0.5).join('');
+    if (editing) setEditing({ ...editing, password: pwd });
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard?.writeText(text).catch(() => {
+      // Fallback for older browsers
+      const ta = document.createElement('textarea');
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+    });
+  };
 
   const apiCall = async (method: string, body?: any, query?: string) => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -818,21 +840,26 @@ function UsersPane() {
     if (!editing) return;
     setMsg('');
     try {
+      const passwordSet = editing.password?.trim();
       if (editing._isNew) {
-        if (!editing.email || !editing.password || !editing.role) {
+        if (!editing.email || !passwordSet || !editing.role) {
           setMsg('กรอก Email, Password, Role'); return;
         }
         await apiCall('POST', {
-          email: editing.email, password: editing.password,
+          email: editing.email, password: passwordSet,
           full_name: editing.full_name, role: editing.role
         });
       } else {
         const patch: any = { id: editing.id };
         if (editing.email !== undefined) patch.email = editing.email;
-        if (editing.password) patch.password = editing.password;
+        if (passwordSet) patch.password = passwordSet;
         if (editing.full_name !== undefined) patch.full_name = editing.full_name;
         if (editing.role) patch.role = editing.role;
         await apiCall('PATCH', patch);
+      }
+      // Show banner with password (only if one was set)
+      if (passwordSet && editing.email) {
+        setPwBanner({ email: editing.email, password: passwordSet });
       }
       setEditing(null);
       await load();
@@ -862,6 +889,31 @@ function UsersPane() {
         </p>
       )}
       {msg && <p className="text-sm text-error mb-3">{msg}</p>}
+
+      {pwBanner && (
+        <div className="mb-4 rounded-md bg-amber-50 border border-amber-300 p-3">
+          <div className="flex items-start gap-3">
+            <span className="text-xl">🔑</span>
+            <div className="flex-1 min-w-0">
+              <div className="font-display font-bold text-sm text-amber-900">
+                รหัสผ่านใหม่ของ {pwBanner.email} ถูกตั้งแล้ว
+              </div>
+              <div className="text-xs text-amber-800 mt-0.5">
+                ⚠️ <b>จดหรือ copy ตอนนี้</b> — เมื่อปิด banner รหัสจะไม่แสดงอีก (Supabase เก็บเป็น hash)
+              </div>
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <code className="bg-white border border-amber-200 rounded px-2 py-1 font-mono text-sm">
+                  {pwBanner.password}
+                </code>
+                <button onClick={() => copyToClipboard(pwBanner.password)}
+                  className="btn-secondary text-xs py-1 px-2">📋 Copy</button>
+              </div>
+            </div>
+            <button onClick={() => setPwBanner(null)}
+              className="text-amber-700 hover:text-amber-900 text-lg leading-none shrink-0">×</button>
+          </div>
+        </div>
+      )}
 
       {loading ? <p className="text-sm text-on-surface-variant">กำลังโหลด…</p> : (
         <table className="w-full text-sm">
@@ -905,11 +957,27 @@ function UsersPane() {
               extraOptions={rows.map(r => r.role).filter(Boolean)}
               onChange={v => setEditing({ ...editing, role: v })}
             />
-            {editing._isNew && (
-              <Field label="Password *"
-                value={editing.password} onChange={v => setEditing({ ...editing, password: v })}
-                placeholder="อย่างน้อย 6 ตัวอักษร / Min 6 chars" />
-            )}
+            <div>
+              <label className="field-label">
+                {editing._isNew ? 'Password *' : 'รีเซ็ตรหัส / Reset Password'}
+              </label>
+              <div className="flex gap-2">
+                <input className="field-input flex-1 font-mono"
+                  value={editing.password || ''}
+                  onChange={e => setEditing({ ...editing, password: e.target.value })}
+                  placeholder={editing._isNew ? 'อย่างน้อย 6 ตัวอักษร / Min 6 chars' : 'เว้นว่างถ้าไม่เปลี่ยน / Leave blank to keep'} />
+                <button type="button" onClick={generatePassword}
+                  className="btn-secondary text-xs whitespace-nowrap"
+                  title="สุ่มรหัส 12 ตัว">
+                  🎲 สุ่ม
+                </button>
+              </div>
+              {!editing._isNew && (
+                <p className="text-[11px] text-on-surface-variant mt-1">
+                  ⚠️ กรอกรหัสใหม่เพื่อรีเซ็ต — เก่าจะถูกแทนทันทีหลังบันทึก หลังบันทึกระบบจะแสดงรหัสให้ครั้งเดียวเพื่อจดไว้
+                </p>
+              )}
+            </div>
             {msg && <p className="text-sm text-error">{msg}</p>}
             <div className="flex gap-2 justify-end pt-2">
               <button type="button" onClick={() => { setEditing(null); setMsg(''); }} className="btn-secondary">ยกเลิก</button>

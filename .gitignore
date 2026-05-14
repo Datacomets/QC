@@ -14,3 +14,8 @@ web/node_modules/
 *.docx
 Sup/
 .claude/
+
+# Credentials — never commit
+users-passwords*.csv
+users-passwords*.xlsx
+*-passwords.*
