@@ -281,6 +281,7 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
             <ReadField label="แบรนด์ / Brand" value={draft.brand} />
             <ReadField label="ฝ่ายขาย / Sales" value={draft.sales} />
             <ReadField label="SCM" value={draft.scm} />
+            <ReadField label="รหัส Sup / Sup Code" value={draft.sup_code} className="col-span-2" />
             <EditField label="หมายเลข Lot / Lot No." value={lotNo} onChange={setLotNo} />
             <EditField label="จำนวนรับ / Received" type="number"
               value={receivedQty === '' ? '' : String(receivedQty)}
