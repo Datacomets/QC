@@ -6,7 +6,6 @@ import SuccessModal, { OrderDraft } from '../components/SuccessModal';
 
 type Rank = 'Critical' | 'Major' | 'Minor';
 interface Material { sap_code: string; description: string | null; product_category: string | null; brand: string | null; sales: string | null; scm: string | null; }
-interface Supplier { sup_code: string; supplier_name: string; sup_sap_code: string | null; }
 interface Defect { defect_code: string; symptom: string; reason: string | null; }
 interface DefectItem { code: string; symptom: string; }
 interface ImageFile { file: File; preview: string; }
@@ -17,10 +16,9 @@ export default function QCEntry() {
   const today = new Date().toISOString().slice(0, 10);
 
   const [orderDate, setOrderDate] = useState(today);
+  const [projectBriefNo, setProjectBriefNo] = useState('');
   const [sapCode, setSapCode] = useState('');
   const [material, setMaterial] = useState<Material | null>(null);
-  const [supSapCode, setSupSapCode] = useState('');
-  const [supplier, setSupplier] = useState<Supplier | null>(null);
   const [salesVal, setSalesVal] = useState('');
   const [scmVal, setScmVal] = useState('');
   const [lotNo, setLotNo] = useState('');
@@ -78,19 +76,6 @@ export default function QCEntry() {
     }, 400);
     return () => clearTimeout(t);
   }, [sapCode, brandMap]);
-
-  // Resolve Sup SAP Code → supplier
-  useEffect(() => {
-    setSupplier(null);
-    const code = supSapCode.trim();
-    if (!code) return;
-    const t = setTimeout(async () => {
-      const { data } = await supabase.from('suppliers')
-        .select('sup_code,supplier_name,sup_sap_code').eq('sup_sap_code', code).maybeSingle();
-      setSupplier((data as Supplier) || null);
-    }, 400);
-    return () => clearTimeout(t);
-  }, [supSapCode]);
 
   // Totals
   const totals = useMemo(() => {
@@ -158,19 +143,21 @@ export default function QCEntry() {
     e.preventDefault();
     setMsg('');
     const sample = typeof sampleSize === 'number' ? sampleSize : parseInt(String(sampleSize));
+    if (!projectBriefNo.trim()) { setMsg('กรุณากรอก Project Brief No.'); return; }
     if (!sapCode || !sample) { setMsg('กรุณากรอก SAP Code และจำนวนตรวจสอบ'); return; }
     if (!orderStatus) { setMsg('กรุณาเลือกสถานะ Order Status'); return; }
     if (!profile?.id) { setMsg('ไม่พบข้อมูลผู้ใช้ — กรุณา login ใหม่'); return; }
 
     setDraft({
       order_date: orderDate,
+      project_brief_no: projectBriefNo.trim(),
       sap_code: sapCode.trim(),
       material_description: material?.description || null,
       brand: material?.brand || null,
       sales: salesVal || null,
       scm: scmVal || null,
-      sup_code: supplier?.sup_code || null,
-      supplier_name: supplier?.supplier_name || null,
+      sup_code: null,
+      supplier_name: null,
       lot_no: lotNo.trim() || null,
       received_qty: receivedQty === '' ? null : +receivedQty,
       sample_size: sample,
@@ -187,7 +174,7 @@ export default function QCEntry() {
   };
 
   const handleSaved = (orderNo: string, ncrNo: string | null) => {
-    setSapCode(''); setSupSapCode(''); setSalesVal(''); setScmVal('');
+    setProjectBriefNo(''); setSapCode(''); setSalesVal(''); setScmVal('');
     setLotNo(''); setReceivedQty(''); setSampleSize(''); setOrderStatus('');
     setNote(''); setDetails([]); setStaging([]);
     setMsg(`✅ บันทึก Order ${orderNo} สำเร็จ${ncrNo ? ` — NCR: ${ncrNo}` : ''}`);
@@ -223,7 +210,13 @@ export default function QCEntry() {
           <input type="date" className="field-input" value={orderDate} onChange={e => setOrderDate(e.target.value)} />
         </div>
         <div className="md:col-span-2">
-          <label className="field-label">รหัส SAP / SAP Code</label>
+          <label className="field-label">Project Brief No. *</label>
+          <input className="field-input" required value={projectBriefNo}
+            onChange={e => setProjectBriefNo(e.target.value)}
+            placeholder="หมายเลขใบ Project Brief" />
+        </div>
+        <div className="md:col-span-3">
+          <label className="field-label">รหัส SAP / SAP Code *</label>
           <input className="field-input" value={sapCode} onChange={e => setSapCode(e.target.value)} placeholder="เช่น 42741000 หรือ 42741000-1" />
         </div>
         <Display label="รายละเอียดสินค้า / Description" value={material?.description} className="md:col-span-3" />
@@ -244,13 +237,6 @@ export default function QCEntry() {
         <Display label="แบรนด์ / Brand" value={material?.brand} />
         <Display label="ฝ่ายขาย / Sales" value={salesVal || null} />
         <Display label="SCM" value={scmVal || null} />
-
-        <div>
-          <label className="field-label">รหัส Sup SAP / Vendor Code</label>
-          <input className="field-input" value={supSapCode} onChange={e => setSupSapCode(e.target.value)} placeholder="เช่น 10000138" />
-        </div>
-        <Display label="รหัสผู้จัดจำหน่าย / Sup Code" value={supplier?.sup_code} />
-        <Display label="ผู้จัดจำหน่าย / Supplier" value={supplier?.supplier_name} />
 
         <div>
           <label className="field-label">หมายเลข Lot / Lot No.</label>

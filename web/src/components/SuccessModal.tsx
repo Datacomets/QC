@@ -13,6 +13,7 @@ interface DraftDefect {
 
 interface OrderDraft {
   order_date: string;
+  project_brief_no: string;
   sap_code: string;
   material_description: string | null;
   brand: string | null;
@@ -156,6 +157,7 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
     // Build qc_orders INSERT payload
     const insertRow: Record<string, unknown> = {
       order_date: orderDate,
+      project_brief_no: draft.project_brief_no,
       sap_code: draft.sap_code,
       material_description: draft.material_description,
       brand: draft.brand,
@@ -272,14 +274,13 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
           {/* Info grid: editable + readonly */}
           <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
             <EditField label="วันที่ / Date" type="date" value={orderDate} onChange={setOrderDate} />
-            <ReadField label="รหัส SAP / SAP Code" value={draft.sap_code} mono />
+            <ReadField label="Project Brief No." value={draft.project_brief_no} mono />
+            <ReadField label="รหัส SAP / SAP Code" value={draft.sap_code} mono className="col-span-2" />
             <ReadField label="รายละเอียด / Description" value={draft.material_description} className="col-span-2" />
             <ReadField label="ประเภท / Type" value={getProductType(draft.sap_code)} />
             <ReadField label="แบรนด์ / Brand" value={draft.brand} />
             <ReadField label="ฝ่ายขาย / Sales" value={draft.sales} />
             <ReadField label="SCM" value={draft.scm} />
-            <ReadField label="รหัส Sup / Sup Code" value={draft.sup_code} />
-            <ReadField label="ผู้จัดจำหน่าย / Supplier" value={draft.supplier_name} />
             <EditField label="หมายเลข Lot / Lot No." value={lotNo} onChange={setLotNo} />
             <EditField label="จำนวนรับ / Received" type="number"
               value={receivedQty === '' ? '' : String(receivedQty)}
@@ -300,7 +301,7 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
           </div>
 
           <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
-            ℹ️ ฟิลด์ที่แก้ไม่ได้ใน popup (SAP / Supplier / สถานะ / เพิ่ม defect ใหม่) — กด <b>Cancel</b> แล้วแก้ในฟอร์ม
+            ℹ️ ฟิลด์ที่แก้ไม่ได้ใน popup (SAP / สถานะ / เพิ่ม defect ใหม่) — กด <b>Cancel</b> แล้วแก้ในฟอร์ม
           </div>
 
           {/* Defect editor */}
