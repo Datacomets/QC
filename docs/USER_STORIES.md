@@ -1,7 +1,7 @@
 # User Stories — QC Inspection Web App
 
-**Version:** 2.1
-**Last Updated:** 9 พฤษภาคม 2026
+**Version:** 2.2
+**Last Updated:** 15 พฤษภาคม 2026
 **Companion to:** [PRD.md](PRD.md)
 
 ---
@@ -57,14 +57,25 @@ US-XX: As a [role], I want [action], so that [benefit]
 - Custom option → input field โผล่ให้พิมพ์ role ใหม่
 - บันทึก → สร้างใน Supabase Auth + insert ลง `profiles`
 
-### US-105: Admin แก้ไขข้อมูล User 👑
-**As an** admin, **I want to** แก้ไข Full Name + Role ของ User เดิม **so that** อัปเดตข้อมูลให้ตรงปัจจุบัน
+### US-105: Admin แก้ไขข้อมูล User 👑 (v2.2 — รวมรีเซ็ตรหัสผ่าน)
+**As an** admin, **I want to** แก้ไข Email / Full Name / Role / Password ของ User เดิม **so that** อัปเดตข้อมูลและจัดการรหัสได้เอง
 
 **Acceptance Criteria:**
 - ปุ่ม "แก้ไข" ในแต่ละแถว
-- Modal เปิดพร้อมข้อมูลเดิม
-- แก้ Full Name + Role ได้ — **ไม่มีช่อง Password** (locked)
+- Modal เปิดพร้อมข้อมูลเดิม (Email ปัจจุบัน + Full Name + Role)
+- **ช่อง Password (v2.2):** เว้นว่างถ้าไม่เปลี่ยน, ใส่ค่าจะ reset เป็นรหัสใหม่ทันที
+- ปุ่ม **🎲 สุ่ม** สร้างรหัส 12 ตัว (avoid 0/O/l/I)
 - Role select ใช้ dropdown เดียวกันกับ Add
+- หลังบันทึก → ถ้าตั้งรหัสใหม่ แสดง **banner one-time** ที่หน้า Users พร้อมปุ่ม **Copy** ให้ Admin จดเก็บ
+
+### US-105b: หลักการเก็บรหัสผ่าน (v2.2) 👑
+**As an** admin, **I want to** เข้าใจว่า Supabase เก็บอะไรไว้ในระบบ **so that** รู้ว่าทำไมต้องจดรหัสตอน banner ปรากฏ
+
+**Acceptance Criteria:**
+- ระบบเก็บแค่ bcrypt hash ของรหัสผ่าน — ไม่มี plaintext ใน DB
+- แม้ admin/service-role ก็ดูรหัสปัจจุบันไม่ได้ ทำได้แค่ตั้งใหม่
+- รหัส plaintext ที่ Admin ดูได้คือเฉพาะตอน banner one-time หลัง reset เท่านั้น
+- ไฟล์ CSV ใน local สำหรับเก็บรหัสไว้อ้างอิงต้อง gitignored (`*-passwords.*` ใน `.gitignore`)
 
 ### US-106: Admin ลบ User 👑
 **As an** admin, **I want to** ลบ User ที่ไม่ใช้แล้ว **so that** เลิก access ทันที
@@ -85,13 +96,42 @@ US-XX: As a [role], I want [action], so that [benefit]
 ## Epic 2 — บันทึก QC (QC Entry)
 
 ### US-201: Auto-fill จาก SAP Code 👷
-**As an** operator, **I want to** กรอก SAP Code แล้วให้ Brand / Sales / SCM / Description ปรากฏอัตโนมัติ **so that** ลดเวลากรอก
+**As an** operator, **I want to** กรอก SAP Code แล้วให้ Brand / Description / SAP breakdown ปรากฏอัตโนมัติ **so that** ลดเวลากรอก
 
 **Acceptance Criteria:**
 - พิมพ์ SAP Code → debounce 400ms → query `materials` table
-- พบ → fill Brand, description, product_category, base_uom, sales, scm
-- ไม่พบ → ช่องว่าง, ใส่เองได้
+- พบ → fill Brand, description, product_category, base_uom, sap breakdown 7 ฟิลด์
+- Sales/SCM → ดึงจาก `brand_responsibilities` ตาม brand (v2.2 — ดู US-209)
+- ไม่พบ → ช่องว่าง, ใส่เองได้ (ยกเว้น Sales/SCM ที่เป็น display-only)
 - เปลี่ยน SAP Code อีกครั้ง → ข้อมูลเก่าหายไป
+
+### US-209: Sales/SCM ดึงจาก Brand Responsibilities (v2.2) 👷
+**As an** operator, **I want to** เห็น Sales/SCM ที่ดึงจาก brand ของสินค้าอัตโนมัติ (อ่านอย่างเดียว) **so that** ข้อมูลตรงกับสิ่งที่ Admin ดูแลไว้ ไม่มีโอกาสพิมพ์ผิด
+
+**Acceptance Criteria:**
+- ฟิลด์ Sales / SCM แสดงเป็น **display-only** (พื้นหลังเทา, แก้ไม่ได้)
+- ระบบ normalize brand ก่อน lookup: `strip [*"']` + `toLowerCase()` → คุม "*BEET" ↔ "BEET" ↔ "beet" ให้ตรงกัน
+- ถ้า brand อยู่ใน `brand_responsibilities` → ใช้ sales/scm จาก table นี้
+- ถ้าไม่อยู่ → fallback ใช้ `materials.sales/scm`
+- Cache โหลด `brand_responsibilities` ทั้งตารางตอน component mount (Map) → lookup O(1)
+
+### US-210: Project Brief No. (v2.2) 👷
+**As an** operator, **I want to** กรอกเลขที่ Project Brief ที่อ้างอิง **so that** เชื่อมโยง QC order กับเอกสาร Project Brief ได้
+
+**Acceptance Criteria:**
+- ฟิลด์ "เลขที่ Project Brief / Project Brief No." อยู่ใกล้ช่อง SAP Code (ส่วนบนของฟอร์ม)
+- **Required** — บันทึกไม่ได้ถ้าเว้นว่าง
+- บันทึกใน `qc_orders.project_brief_no text`
+- แสดงในหน้า History expanded view + PDF reports
+
+### US-211: Supplier ผ่าน Vendor Code (v2.2) 👷
+**As an** operator, **I want to** กรอก Vendor Code (Sup SAP) แล้วให้ Sup Code ปรากฏอัตโนมัติ **so that** อ้างอิงผู้จัดจำหน่ายได้โดยไม่ต้องพิมพ์ชื่อ
+
+**Acceptance Criteria:**
+- ฟิลด์ "Vendor Code / Sup SAP" input ปกติ (กรอกได้)
+- ฟิลด์ "Sup Code" display-only ดึงจากตาราง `suppliers` (lookup ด้วย sup_sap_code)
+- **Supplier name input ถูกซ่อนจาก QC Entry** — ระบบบันทึก supplier_name ลง DB ผ่าน lookup เอง
+- ฟิลด์ Supplier ยังคงเก็บใน `qc_orders.supplier_name` เพื่อให้ History/PDF/Dashboard ใช้ได้ปกติ
 
 ### US-202: SAP Code Breakdown แสดงเป็นช่องแยก (v2.1) 👷
 **As an** operator, **I want to** เห็นการแยกประเภทของ SAP Code (Item Type / Source / Category / Group / Sub-Group / Running / Revision) เป็นช่องแยกกัน **so that** เข้าใจสินค้าทันทีโดยไม่ต้องจำ mapping
@@ -114,8 +154,21 @@ US-XX: As a [role], I want [action], so that [benefit]
 ### US-206: เลือก Inspection Result 👷
 **As an** operator, **I want to** เลือกผลตรวจ Accept / Accept Lot / Reject **so that** สรุปผลการสุ่มตรวจ
 
-### US-207: Success Popup สรุปข้อมูล 👷
-**As an** operator, **I want to** เห็น popup สรุปหลังบันทึก **so that** ตรวจสอบความถูกต้อง
+### US-207: Review-before-save popup (v2.2) 👷
+**As an** operator, **I want to** เห็น popup ตรวจ/แก้ไขข้อมูลก่อนบันทึกลง DB จริง **so that** ลดความผิดพลาดและไม่ต้องไป Need Edit ทีหลัง
+
+**Acceptance Criteria:**
+- กดปุ่ม "บันทึก / Save" ใน QC Entry → **ไม่ insert ลง DB ทันที**
+- เปิด popup Review (Stage 1):
+  - แสดง preview ของ Order + Defect List ที่จะบันทึก
+  - **แก้ไขใน popup ได้:** Date, Lot No., Received Qty, Sample Size, Note
+  - **แก้ไข Defects ได้:** Critical Rank, จำนวน, เพิ่ม/ลบรูปภาพ, ลบรายการ
+  - **เลือกผู้อนุมัติ** ใน popup (dropdown qc_admin/admin + Custom name option)
+  - ปุ่ม "ยกเลิก / Cancel" → กลับไปแก้ในฟอร์ม
+  - ปุ่ม "✓ ยืนยันบันทึก / Confirm Save" → ทำ DB writes (insert qc_orders, insert details, upload images, set approval)
+- ถ้ายกเลิก popup → ฟอร์ม QC Entry คงข้อมูลเดิม Operator แก้ต่อได้
+- หลังยืนยันสำเร็จ → popup เปลี่ยนเป็น Success view (Stage 2) แสดง Order No + NCR No (ถ้ามี)
+- ปิด popup → reset form ของ QC Entry
 
 ### US-208: NCR auto-create เมื่อ Reject 👷🛡️
 **As a** system, **I want to** สร้าง NCR record อัตโนมัติเมื่อ Order มี status='Reject'
@@ -152,18 +205,28 @@ US-XX: As a [role], I want [action], so that [benefit]
 - chip รูปแบบ "📋 NCR26050001 · Open" — สีตามสถานะ NCR (Open=แดง, In Progress=เหลือง, Closed=เขียว)
 - เฉพาะ Reject orders ที่มี NCR record
 
+### US-306: ซ่อน Defect % เมื่อ Accept Lot (v2.2) 👷👀🛡️👑
+**As a** ทุก role, **I want to** เห็น `—` แทน `%` ของเสียในการ์ดหน้า History สำหรับ order ที่ status = Accept Lot **so that** ไม่เข้าใจผิดว่า Accept Lot ใช้เกณฑ์ % ตัดสินใจ
+
+**Acceptance Criteria:**
+- การ์ดหน้า History: ถ้า `status === 'Accept Lot'` แสดง "—" สีเทา (ไม่ใช่สีแดง/ฟ้า)
+- บรรทัด `ตรวจ/Inspected · ดี/Good · เสีย/Defect` และ chip C/M/m ยังคงแสดงปกติ
+- defect records ใน `qc_order_details` ยังถูกบันทึกเหมือนเดิม
+- **PDF reports** (per-order, summary, NCR) ยังคำนวณ + แสดง % ตาม `defect_percent` ปกติ
+- **Dashboard** rate aggregations ยังรวม Accept Lot เป็น sample/defect ปกติ
+
 ---
 
 ## Epic 4 — Approval & Edit Workflow
 
-### US-401: Operator ยืนยันรับ Order + เลือกผู้อนุมัติ (v2.1) 👷
+### US-401: Operator ยืนยันรับ Order + เลือกผู้อนุมัติ 👷
 **As an** operator, **I want to** กดปุ่ม "ยืนยัน" แล้วเลือกชื่อผู้อนุมัติจาก dropdown หรือพิมพ์ชื่อเอง **so that** บันทึกการรับ order + ระบุผู้รับผิดชอบ
 
 **Acceptance Criteria:**
 - ปุ่ม label เปลี่ยนตามสถานะ:
   - Accept → "✓ ยืนยันรับ / Confirm Accept"
   - Accept Lot → "✓ ยืนยันรับ Lot / Confirm Accept Lot"
-  - Reject → "✓ ยืนยันปฏิเสธ / Confirm Reject"
+  - Reject → "✓ ยืนยันการปฏิเสธ / Confirm Reject" *(v2.2 — ปรับคำเดิม "ยืนยันปฏิเสธ")*
 - คลิก → Modal เปิดพร้อม:
   - แสดง Order No + ผลตรวจ
   - **Dropdown** "ผู้อนุมัติ / Approver" — แสดงเฉพาะ role `admin` + `qc_admin` พร้อม label
@@ -172,6 +235,7 @@ US-XX: As a [role], I want [action], so that [benefit]
   - `approved=true`, `approved_by=<UUID หรือ NULL>`, `approved_by_name=<text>`, `approved_at=now`
   - เซ็ตคอลัมน์ status-specific (เช่น `accept_approved=true`, `accept_approved_by_name=...`)
 - ผู้กดต้องเป็น role `operator` เท่านั้น — admin/qc_admin/viewer **ไม่เห็นปุ่มนี้**
+- หมายเหตุ (v2.2): Operator เลือกผู้อนุมัติได้ตั้งแต่ใน Review popup ของ QC Entry ตอนบันทึกใหม่ — ปุ่มนี้ใช้กรณี order ที่ค้าง Pending เท่านั้น
 
 ### US-402: Admin/QC Admin ขอให้แก้ไข Order 🛡️👑
 **As a** admin/qc_admin, **I want to** กด "ต้องแก้ไข" + ใส่เหตุผล **so that** ปลดล็อกให้เจ้าของ Order แก้ข้อมูล
@@ -335,6 +399,33 @@ US-XX: As a [role], I want [action], so that [benefit]
 ### US-902: จัดการ Defect Codes 🛡️👑
 **As a** admin/qc_admin, **I want to** เพิ่ม/แก้ไข/ลบ รหัสของเสีย พร้อม Type / Reason
 
+### US-903: จัดการ Brand → Sales/SCM (v2.2) 👑
+**As an** admin, **I want to** จัดการตาราง `brand_responsibilities` ที่ใช้กำหนด Sales/SCM ของแต่ละ brand **so that** ค่า Sales/SCM ใน QC Entry ตรงกับความรับผิดชอบจริงปัจจุบัน
+
+**Acceptance Criteria:**
+- Tab "Brand → Sales/SCM" ใน Admin Panel — **เห็นเฉพาะ admin role** (qc_admin ไม่เห็น)
+- ตารางรายการ Brand ปัจจุบัน + Sales + SCM + Updated_at
+- **CRUD ทีละแถว:** Add / Inline Edit / Delete พร้อม confirm
+- Brand ที่บันทึกจะ normalize ก่อนเทียบ — `strip [*"']` + lowercase
+
+### US-904: อัปโหลด Brand list หลายรายการ (v2.2) 👑
+**As an** admin, **I want to** อัปโหลด Excel หรือ paste ตาราง brand หลายรายการ **so that** อัปเดต/เพิ่มได้รวดเร็วเมื่อมีการเปลี่ยน Sales/SCM ทั้งทีม
+
+**Acceptance Criteria:**
+- ปุ่ม "📤 อัปโหลด / Paste หลายรายการ"
+- รองรับ:
+  - Drag-drop ไฟล์ `.xlsx`
+  - คลิกเลือกไฟล์
+  - Paste TSV/CSV ลงในช่อง textarea (auto-detect delimiter)
+- ขั้นตอน: เลือกไฟล์/วาง → ระบบ parse + แสดง preview diff
+- Diff classification per row:
+  - 🟢 **NEW** — brand ยังไม่มีใน table
+  - 🟡 **UPDATE** — มีอยู่แล้วแต่ sales/scm ต่างกัน
+  - ⚪ **UNCHANGED** — เหมือนเดิมทุกฟิลด์
+  - 🔴 **ERROR** — header ไม่ตรงสเปก หรือ brand ว่าง
+- Summary count + ปุ่ม "ยืนยันนำเข้า" / "ยกเลิก"
+- กดยืนยัน → upsert by normalized brand
+
 ---
 
 ## Epic 10 — Guide & Help
@@ -403,8 +494,15 @@ US-XX: As a [role], I want [action], so that [benefit]
 ### US-1302: Server-side Admin Operations
 **As a** system, **I want to** เก็บ Secret Key ฝั่ง server เท่านั้น
 
-### US-1303: Password Locked Once Set
-**As a** system, **I want to** ไม่มี UI ให้เปลี่ยนรหัสผู้ใช้เดิม **so that** Admin ควบคุม credential
+### US-1303: Admin สามารถรีเซ็ตรหัสผ่านได้ (v2.2 — แทน US-1303 เดิม)
+**As an** admin, **I want to** ตั้ง/รีเซ็ตรหัสของ User เดิมผ่าน Admin UI **so that** จัดการ credential ได้โดยไม่ต้องลบ+สร้าง user ใหม่
+
+**Acceptance Criteria:**
+- Edit User modal มีช่อง Password (เว้นว่างถ้าไม่เปลี่ยน) + ปุ่ม 🎲 Generate
+- หลังบันทึก แสดง banner one-time พร้อมปุ่ม Copy
+- Endpoint `/api/admin-users` PATCH รับ `password` field (ผ่าน service-role)
+- ระบบเก็บแค่ bcrypt hash — ดูรหัสปัจจุบันไม่ได้ทุกกรณี (เป็น by-design ของ Supabase/OWASP)
+- หมายเหตุ: นโยบาย "passwords locked" เดิม (v2.0) ถูกยกเลิกใน v2.2 เพราะ Admin ต้องการ recover รหัสที่ user ลืมโดยไม่ทำลายข้อมูล
 
 ### US-1304: ลบตัวเองไม่ได้
 **As an** admin, **I should not** ลบ account ตัวเองได้
@@ -415,11 +513,11 @@ US-XX: As a [role], I want [action], so that [benefit]
 
 | Tag | Meaning |
 |---|---|
-| ✅ | Implemented & deployed in v2.1 |
+| ✅ | Implemented & deployed in v2.2 |
 | 🚧 | In progress |
 | 📋 | Backlog (future phases) |
 
-> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.1) ยกเว้นที่ระบุไว้
+> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.2) ยกเว้นที่ระบุไว้
 
 ---
 
