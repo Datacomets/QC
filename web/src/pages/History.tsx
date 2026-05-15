@@ -630,7 +630,7 @@ export default function History() {
                           at={o.acceptlot_approved_at} />
                       )}
                       {o.reject_approved && (
-                        <ApprovalLine label="✓ ยืนยันปฏิเสธ / Confirm Reject"
+                        <ApprovalLine label="✓ ยืนยันการปฏิเสธ / Confirm Reject"
                           by={o.reject_approved_by_name || profilesMap[o.reject_approved_by || ''] || '—'}
                           at={o.reject_approved_at} />
                       )}
@@ -698,7 +698,7 @@ export default function History() {
                         className="btn-primary text-sm">
                         {o.status === 'Accept'     ? '✓ ยืนยันรับ / Confirm Accept' :
                          o.status === 'Accept Lot' ? '✓ ยืนยันรับ Lot / Confirm Accept Lot' :
-                         o.status === 'Reject'     ? '✓ ยืนยันปฏิเสธ / Confirm Reject' :
+                         o.status === 'Reject'     ? '✓ ยืนยันการปฏิเสธ / Confirm Reject' :
                                                      '✓ อนุมัติ / Approve'}
                       </button>
                     )}
@@ -737,7 +737,7 @@ export default function History() {
         const o = approveOrderRef;
         const statusLabel = o.status === 'Accept' ? 'ยืนยันรับ / Confirm Accept'
                           : o.status === 'Accept Lot' ? 'ยืนยันรับ Lot / Confirm Accept Lot'
-                          : o.status === 'Reject' ? 'ยืนยันปฏิเสธ / Confirm Reject'
+                          : o.status === 'Reject' ? 'ยืนยันการปฏิเสธ / Confirm Reject'
                           : 'อนุมัติ / Approve';
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={closeApproveModal}>
