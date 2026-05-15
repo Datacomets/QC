@@ -565,8 +565,11 @@ export default function History() {
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <div className={`font-display font-bold text-2xl ${o.defect_percent > 0 ? 'text-error' : 'text-primary'}`}>
-                      {Number(o.defect_percent).toFixed(2)}%
+                    <div className={`font-display font-bold text-2xl ${
+                      o.status === 'Accept Lot' ? 'text-on-surface-variant' :
+                      o.defect_percent > 0 ? 'text-error' : 'text-primary'
+                    }`}>
+                      {o.status === 'Accept Lot' ? '—' : `${Number(o.defect_percent).toFixed(2)}%`}
                     </div>
                     <div className="flex gap-1.5 mt-1 justify-end text-[10px]">
                       <span className="chip">C:{o.critical_qty}</span>
