@@ -713,14 +713,16 @@ export default function History() {
                                                      '✓ อนุมัติ / Approve'}
                       </button>
                     )}
-                    {/* Need Edit — admin/qc_admin only */}
-                    {isAdminRole && !o.edit_approved && !o.approved && (
+                    {/* Need Edit — admin/qc_admin only, only for orders NOT owned by them
+                        (own orders can be edited directly without unlock) */}
+                    {isAdminRole && !o.edit_approved && !o.approved && o.created_by !== profile?.id && (
                       <button type="button" onClick={e => { e.stopPropagation(); setEditRequestOrderId(o.id); }}
                         className="btn-secondary text-sm">
                         ✏️ ต้องแก้ไข / Need Edit
                       </button>
                     )}
-                    {o.edit_approved && (isAdminRole || o.created_by === profile?.id) && (
+                    {/* Edit — Owner can edit own anytime; Admin/qc_admin can edit if Need Edit was triggered */}
+                    {(o.created_by === profile?.id || (isAdminRole && o.edit_approved)) && (
                       <button type="button" onClick={e => { e.stopPropagation(); nav(`/edit/${o.id}`); }}
                         className="btn-primary text-sm">
                         แก้ไขข้อมูล / Edit

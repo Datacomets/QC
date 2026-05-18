@@ -15,6 +15,9 @@ export default function QCEdit() {
   const [loading, setLoading] = useState(true);
   const [orderNo, setOrderNo] = useState('');
   const [editReason, setEditReason] = useState('');
+  // Track edit mode: self-edit (operator on own order) vs admin-unlocked-edit
+  const [isSelfEdit, setIsSelfEdit] = useState(false);
+  const [wasApproved, setWasApproved] = useState(false);
   const [orderDate, setOrderDate] = useState('');
   const [receivedDate, setReceivedDate] = useState('');
   const [projectBriefNo, setProjectBriefNo] = useState('');
@@ -42,16 +45,22 @@ export default function QCEdit() {
     if (!orderId) return;
     (async () => {
       const { data: order } = await supabase.from('qc_orders').select('*').eq('id', +orderId).single();
-      if (!order || !order.edit_approved) { nav('/'); return; }
+      if (!order) { nav('/'); return; }
 
-      // Authorization: only admin/qc_admin or the original creator can edit
+      // Authorization:
+      // - Owner can edit own order anytime (no admin unlock required)
+      // - Admin/qc_admin can edit any order if edit_approved=true (Need Edit was triggered)
       const isAdminRole = profile?.role === 'admin' || profile?.role === 'qc_admin';
       const isOwner = order.created_by === profile?.id;
-      if (!isAdminRole && !isOwner) {
-        alert('คุณไม่ได้เป็นเจ้าของ Order นี้ — เฉพาะเจ้าของหรือ Admin เท่านั้นที่แก้ไขได้\nYou are not the owner of this Order — only owner or Admin can edit');
+      if (!isOwner && !(isAdminRole && order.edit_approved)) {
+        alert('คุณไม่มีสิทธิ์แก้ไข Order นี้ — เฉพาะเจ้าของแก้ไขได้ตลอด หรือ Admin ที่กด Need Edit แล้ว\nYou don\'t have permission to edit this Order');
         nav('/');
         return;
       }
+
+      // Determine edit mode for save-side handling
+      setIsSelfEdit(isOwner && !order.edit_approved);
+      setWasApproved(!!order.approved);
 
       setOrderNo(order.order_no);
       setEditReason(order.edit_reason || '');
@@ -138,8 +147,8 @@ export default function QCEdit() {
     if (!sample) { setMsg('กรุณากรอกจำนวนตรวจสอบ'); setSaving(false); return; }
     if (!status) { setMsg('กรุณาเลือกผลตรวจ / Please select inspection result'); setSaving(false); return; }
 
-    // Update order
-    const { error } = await supabase.from('qc_orders').update({
+    // Build update payload
+    const updateRow: Record<string, unknown> = {
       received_date: receivedDate || null,
       project_brief_no: projectBriefNo.trim() || null,
       sap_code: sapCode.trim(), material_description: materialDesc, brand, sales, scm,
@@ -148,7 +157,20 @@ export default function QCEdit() {
       received_qty: receivedQty === '' ? null : +receivedQty,
       sample_size: sample, note: note.trim() || null, status,
       edit_approved: false, edit_reason: null, edit_approved_by: null, edit_approved_at: null
-    }).eq('id', +orderId!);
+    };
+
+    // Self-edit on previously-approved order → return to Pending (operator changed data
+    // that approver had previously accepted; needs re-approval)
+    if (isSelfEdit && wasApproved) {
+      Object.assign(updateRow, {
+        approved: false, approved_by: null, approved_by_name: null, approved_at: null,
+        accept_approved: false, accept_approved_by: null, accept_approved_by_name: null, accept_approved_at: null,
+        acceptlot_approved: false, acceptlot_approved_by: null, acceptlot_approved_by_name: null, acceptlot_approved_at: null,
+        reject_approved: false, reject_approved_by: null, reject_approved_by_name: null, reject_approved_at: null
+      });
+    }
+
+    const { error } = await supabase.from('qc_orders').update(updateRow).eq('id', +orderId!);
     if (error) { setMsg('แก้ไขไม่สำเร็จ: ' + error.message); setSaving(false); return; }
 
     // Delete old details and re-insert
@@ -180,9 +202,20 @@ export default function QCEdit() {
       if (e2) { setMsg('บันทึกรายการของเสียไม่สำเร็จ: ' + e2.message); setSaving(false); return; }
     }
 
-    // Update edit log
-    await supabase.from('qc_order_edit_log').update({ edited_by: profile?.id, edited_at: new Date().toISOString() })
-      .eq('order_id', +orderId!).is('edited_at', null);
+    // Audit log
+    if (isSelfEdit) {
+      // No prior log row (operator bypassed admin unlock) → insert a fresh entry
+      await supabase.from('qc_order_edit_log').insert({
+        order_id: +orderId!,
+        edit_reason: 'แก้ไขโดยเจ้าของ / Self-edit by owner',
+        edited_by: profile?.id,
+        edited_at: new Date().toISOString()
+      });
+    } else {
+      // Admin unlocked → complete the existing log row
+      await supabase.from('qc_order_edit_log').update({ edited_by: profile?.id, edited_at: new Date().toISOString() })
+        .eq('order_id', +orderId!).is('edited_at', null);
+    }
 
     setSaving(false);
     nav('/');
@@ -209,6 +242,16 @@ export default function QCEdit() {
         <div className="rounded-md bg-amber-50 border border-amber-200 px-4 py-3 text-sm">
           <span className="font-semibold text-amber-800">เหตุผลที่อนุมัติแก้ไข / Edit Reason: </span>
           <span className="text-amber-900">{editReason}</span>
+        </div>
+      )}
+
+      {isSelfEdit && (
+        <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-3 text-sm">
+          <span className="font-semibold text-blue-800">โหมดแก้ไขเอง / Self-Edit Mode: </span>
+          <span className="text-blue-900">
+            คุณเป็นเจ้าของ Order นี้ จึงแก้ไขได้โดยตรง
+            {wasApproved && ' — หลังบันทึก สถานะการอนุมัติจะถูกรีเซ็ตเป็น Pending'}
+          </span>
         </div>
       )}
 
