@@ -20,7 +20,7 @@ export default function Guide() {
         <p>Web Application สำหรับบันทึก / ติดตามการสุ่มตรวจคุณภาพสินค้า รวม NCR และ Dashboard วิเคราะห์</p>
         <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
           <RoleCard title="Operator" desc="QC Staff" access="บันทึก QC + ยืนยันรับ" active={role === 'operator'} />
-          <RoleCard title="QC Admin" desc="QC หัวหน้า" access="+ Master Data + Need Edit + NCR" active={role === 'qc_admin'} />
+          <RoleCard title="QC Admin" desc="QC หัวหน้า" access="+ Master Data + Edit Order + NCR" active={role === 'qc_admin'} />
           <RoleCard title="Admin" desc="System Admin" access="+ Users + Brand Sales/SCM" active={role === 'admin'} />
           <RoleCard title="Viewer" desc="ผู้ดูข้อมูล" access="ดู Dashboard / Material" active={role === 'viewer'} />
         </div>
@@ -127,8 +127,7 @@ export default function Guide() {
           ['📄 PDF', 'ดู / Download QC Inspection Report (A4)', 'ทุก role'],
           ['📋 NCR (เลข NCR)', 'เปิดฟอร์ม NCR + Download NCR PDF (ถ้า Order = Reject)', 'ทุก role'],
           ['✓ ยืนยันรับ', 'Operator เลือกผู้อนุมัติแล้วยืนยัน — เปลี่ยน Pending → Approved', 'operator'],
-          ['✏️ ต้องแก้ไข / Need Edit', 'อนุมัติให้ Operator แก้ไข Order (ขอเหตุผล)', 'qc_admin / admin'],
-          ['แก้ไขข้อมูล / Edit', 'แก้ Order หลัง Need Edit ถูกอนุมัติ', 'เจ้าของ order'],
+          ['แก้ไขข้อมูล / Edit', 'แก้ Order ได้ตลอด (clear approval ถ้าเคย approve)', 'เจ้าของ order / qc_admin / admin'],
         ]} />
 
         <h3 className="font-display font-semibold text-base mt-4 mb-2">ปุ่มด้านบน</h3>
@@ -253,14 +252,14 @@ export default function Guide() {
             </div>
           </Section>
 
-          <Section title="Need Edit Workflow">
-            <p className="mb-3">qc_admin/admin อนุมัติให้ Operator แก้ Order หลังบันทึกไปแล้ว</p>
+          <Section title="แก้ไข Order หลังบันทึก / Edit After Save">
+            <p className="mb-3">เจ้าของ Order และ qc_admin/admin แก้ Order ได้ตลอดเวลาโดยตรง — ไม่ต้องผ่านขั้น Need Edit แล้ว</p>
             <Steps steps={[
-              'ใน History → expand Order ที่ต้องแก้',
-              'กดปุ่ม "✏️ ต้องแก้ไข / Need Edit"',
-              'กรอกเหตุผล (เช่น "Sample size ผิด")',
-              'กดยืนยัน — Order มี chip "✏️ รอแก้ไข"',
-              'Operator จะเห็นปุ่ม "แก้ไขข้อมูล" — แก้แล้ว save ใหม่',
+              'ใน History → expand Order ที่ต้องการแก้',
+              'กดปุ่ม "แก้ไขข้อมูล / Edit"',
+              'แก้ข้อมูลในหน้า /edit/:orderId แล้ว save',
+              'ถ้า Order เคย Approved → สถานะ approval จะถูกรีเซ็ตเป็น Pending (ต้อง re-approve)',
+              'ทุกครั้งที่แก้ → ระบบ insert log ลง qc_order_edit_log (audit trail ครบ)',
             ]} />
           </Section>
 
@@ -335,7 +334,7 @@ export default function Guide() {
             <h3 className="font-display font-semibold text-base mt-4 mb-2">ตาราง Role</h3>
             <Table headers={['Role', 'สิทธิ์']} rows={[
               ['admin', 'ทุกอย่าง (รวม Users + Brand Sales/SCM)'],
-              ['qc_admin', 'Master Data + Need Edit + NCR + Dashboard'],
+              ['qc_admin', 'Master Data + Edit Order + NCR + Dashboard'],
               ['operator', 'บันทึก QC + History + ยืนยันรับ Order'],
               ['viewer', 'Dashboard + Material อ่านอย่างเดียว'],
             ]} />
@@ -359,7 +358,7 @@ export default function Guide() {
           <Faq q="Sales / SCM ไม่ขึ้น" a="ระบบ match ตาม Brand → ถ้า brand ใน materials ไม่ตรงกับใน brand_responsibilities จะไม่ขึ้น ให้ admin ไปเพิ่มใน Admin → Brand → Sales/SCM" />
           <Faq q="Vendor Code (Sup SAP) แล้ว Sup Code ไม่ขึ้น" a="รหัส Supplier ไม่อยู่ในระบบ — ให้ qc_admin ไปเพิ่มใน Admin → Suppliers" />
           <Faq q="กด ตรวจสอบและบันทึก แล้วข้อมูลหายไหม ถ้ากด Cancel ใน popup" a="ไม่หาย — ฟอร์มยังมีข้อมูลเดิม กดปรับแล้ว save ใหม่ได้" />
-          <Faq q="บันทึก Order แล้วอยากแก้" a="แจ้ง qc_admin → กด ✏️ ต้องแก้ไข → เจ้าของ Order จะเห็นปุ่มแก้ไข" />
+          <Faq q="บันทึก Order แล้วอยากแก้" a="กดปุ่ม 'แก้ไขข้อมูล / Edit' ได้เลย — เจ้าของ Order และ qc_admin/admin แก้ได้ตลอดเวลา (ถ้าเคย Approve จะกลับเป็น Pending รอ re-approve)" />
           <Faq q="Login ไม่ได้ / ลืม Password" a="แจ้ง Admin System → Admin → Users → แก้ไข → ตั้งรหัสใหม่ → จด → แจ้งให้" />
           <Faq q="รูปภาพอัปโหลดได้กี่รูป" a="สูงสุด 3 รูปต่อ 1 รายการของเสีย — เพิ่ม/ลบ ใน Popup ก่อนบันทึกได้" />
           <Faq q="Reject แล้วจะเกิดอะไรขึ้น" a="ระบบสร้าง NCR อัตโนมัติ — กดปุ่ม 📋 NCR ใน History เพื่อกรอก Root Cause และ download ใบ NCR PDF" />
