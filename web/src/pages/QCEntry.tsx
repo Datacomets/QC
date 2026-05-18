@@ -31,6 +31,8 @@ export default function QCEntry() {
   const [sampleSize, setSampleSize] = useState<number | ''>('');
   const [orderStatus, setOrderStatus] = useState<'Accept' | 'Accept Lot' | 'Reject' | ''>('');
   const [note, setNote] = useState('');
+  const [originalDocChoice, setOriginalDocChoice] = useState('');   // dropdown selection or '__custom__'
+  const [originalDocCustom, setOriginalDocCustom] = useState('');
 
   const [details, setDetails] = useState<DetailRow[]>([]);
   const [defects, setDefects] = useState<Defect[]>([]);
@@ -175,11 +177,17 @@ export default function QCEntry() {
     if (!orderStatus) { setMsg('กรุณาเลือกสถานะ Order Status'); return; }
     if (!profile?.id) { setMsg('ไม่พบข้อมูลผู้ใช้ — กรุณา login ใหม่'); return; }
 
+    const originalDocWith = originalDocChoice === '__custom__'
+      ? (originalDocCustom.trim() || null)
+      : (originalDocChoice || null);
+
     setDraft({
       order_date: orderDate,
       received_date: receivedDate || null,
       project_brief_no: projectBriefNo.trim(),
       preview_order_no: previewOrderNo || null,
+      original_doc_with: originalDocWith,
+      created_by_name: profile.full_name || null,
       sap_code: sapCode.trim(),
       material_description: material?.description || null,
       brand: material?.brand || null,
@@ -205,7 +213,8 @@ export default function QCEntry() {
   const handleSaved = (orderNo: string, ncrNo: string | null) => {
     setReceivedDate(''); setProjectBriefNo(''); setSapCode(''); setSupSapCode(''); setSalesVal(''); setScmVal('');
     setLotNo(''); setReceivedQty(''); setSampleSize(''); setOrderStatus('');
-    setNote(''); setDetails([]); setStaging([]);
+    setNote(''); setOriginalDocChoice(''); setOriginalDocCustom('');
+    setDetails([]); setStaging([]);
     setMsg(`✅ บันทึก Order ${orderNo} สำเร็จ${ncrNo ? ` — NCR: ${ncrNo}` : ''}`);
   };
 
@@ -447,9 +456,41 @@ export default function QCEntry() {
         )}
       </section>
 
-      <section className="section">
-        <label className="field-label">หมายเหตุ / Remarks</label>
-        <textarea rows={3} className="field-input" value={note} onChange={e => setNote(e.target.value)} />
+      <section className="section space-y-4">
+        <div>
+          <label className="field-label">หมายเหตุ / Remarks</label>
+          <textarea rows={3} className="field-input" value={note} onChange={e => setNote(e.target.value)} />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="field-label">เอกสารต้นฉบับอยู่ที่ / Original Document With</label>
+            <select className="field-select"
+              value={originalDocChoice}
+              onChange={e => {
+                setOriginalDocChoice(e.target.value);
+                if (e.target.value !== '__custom__') setOriginalDocCustom('');
+              }}>
+              <option value="">— เลือก / Select —</option>
+              <option value="คุณอู๋">คุณอู๋</option>
+              <option value="WH">WH</option>
+              <option value="PD">PD</option>
+              <option value="SCM">SCM</option>
+              <option value="__custom__">+ อื่น ๆ (พิมพ์เอง) / Other…</option>
+            </select>
+            {originalDocChoice === '__custom__' && (
+              <input className="field-input mt-2" autoFocus
+                value={originalDocCustom}
+                onChange={e => setOriginalDocCustom(e.target.value)}
+                placeholder="พิมพ์ชื่อผู้ถือเอกสาร" />
+            )}
+          </div>
+          <div>
+            <label className="field-label">ผู้บันทึก / Recorded By</label>
+            <div className="field-input bg-surface-low text-on-surface-variant cursor-not-allowed">
+              {profile?.full_name || '—'}
+            </div>
+          </div>
+        </div>
       </section>
 
       {msg && <div className={`rounded-md px-3 py-2 text-sm ${msg.startsWith('✅') ? 'bg-primary-container text-on-primary-container' : 'bg-error-container text-error'}`}>{msg}</div>}

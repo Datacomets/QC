@@ -15,6 +15,7 @@ interface Order {
   order_date: string;
   received_date: string | null;
   project_brief_no: string | null;
+  original_doc_with: string | null;
   sap_code: string;
   material_description: string | null;
   brand: string | null;
@@ -605,6 +606,8 @@ export default function History() {
                     <InfoField label="ผู้จัดจำหน่าย / Supplier" value={o.supplier_name} />
                     <InfoField label="จำนวนรับ / Received Qty" value={o.received_qty != null ? String(o.received_qty) : null} />
                     <InfoField label="จำนวนตรวจสอบ / Sample Size" value={String(o.sample_size)} />
+                    <InfoField label="เอกสารต้นฉบับอยู่ที่ / Original Doc With" value={o.original_doc_with} />
+                    <InfoField label="ผู้บันทึก / Recorded By" value={profilesMap[o.created_by || ''] || null} />
                   </div>
                   {o.note && (
                     <div className="text-sm">

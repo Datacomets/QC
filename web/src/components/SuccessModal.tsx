@@ -15,6 +15,8 @@ interface OrderDraft {
   order_date: string;                     // วันที่ตรวจ / Inspection Date (required)
   received_date: string | null;            // วันที่รับเข้า / Received Date (optional)
   preview_order_no: string | null;         // peeked QC<YYMM><seq4> for display only
+  original_doc_with: string | null;        // เอกสารต้นฉบับอยู่ที่ — dropdown value or custom text
+  created_by_name: string | null;          // display name of inspector (logged-in user)
   project_brief_no: string;
   sap_code: string;
   material_description: string | null;
@@ -48,6 +50,17 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
   const [receivedQty, setReceivedQty] = useState<number | ''>(draft.received_qty ?? '');
   const [sampleSize, setSampleSize] = useState(draft.sample_size);
   const [note, setNote] = useState(draft.note || '');
+  // Original doc holder: parse the incoming string to dropdown choice + optional custom text
+  const PRESETS = ['คุณอู๋', 'WH', 'PD', 'SCM'];
+  const [originalDocChoice, setOriginalDocChoice] = useState(() => {
+    const v = draft.original_doc_with;
+    if (!v) return '';
+    return PRESETS.includes(v) ? v : '__custom__';
+  });
+  const [originalDocCustom, setOriginalDocCustom] = useState(() => {
+    const v = draft.original_doc_with;
+    return v && !PRESETS.includes(v) ? v : '';
+  });
   const [details, setDetails] = useState<DraftDefect[]>(draft.details);
 
   // Approver
@@ -77,6 +90,10 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
     ? approverCustom.trim().length > 0
     : !!approverChoice;
 
+  const resolvedOriginalDoc = originalDocChoice === '__custom__'
+    ? (originalDocCustom.trim() || null)
+    : (originalDocChoice || null);
+
   const isDirty = useMemo(() => {
     return orderDate !== draft.order_date
       || receivedDate !== (draft.received_date || '')
@@ -84,8 +101,9 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
       || (receivedQty === '' ? null : Number(receivedQty)) !== draft.received_qty
       || sampleSize !== draft.sample_size
       || note !== (draft.note || '')
+      || resolvedOriginalDoc !== draft.original_doc_with
       || details !== draft.details;
-  }, [orderDate, receivedDate, lotNo, receivedQty, sampleSize, note, details, draft]);
+  }, [orderDate, receivedDate, lotNo, receivedQty, sampleSize, note, resolvedOriginalDoc, details, draft]);
 
   const saveLabel = saving ? 'กำลังบันทึก…'
     : hasApprover ? '✓ บันทึก + ยืนยัน / Save & Confirm'
@@ -162,6 +180,7 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
     const insertRow: Record<string, unknown> = {
       order_date: orderDate,
       received_date: receivedDate || null,
+      original_doc_with: resolvedOriginalDoc,
       project_brief_no: draft.project_brief_no,
       sap_code: draft.sap_code,
       material_description: draft.material_description,
@@ -307,6 +326,29 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
           <div>
             <label className="field-label">หมายเหตุ / Remarks</label>
             <textarea className="field-input" rows={2} value={note} onChange={e => setNote(e.target.value)} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="field-label">เอกสารต้นฉบับอยู่ที่ / Original Doc With</label>
+              <select className="field-select"
+                value={originalDocChoice}
+                onChange={e => {
+                  setOriginalDocChoice(e.target.value);
+                  if (e.target.value !== '__custom__') setOriginalDocCustom('');
+                }}>
+                <option value="">— เลือก / Select —</option>
+                {PRESETS.map(p => <option key={p} value={p}>{p}</option>)}
+                <option value="__custom__">+ อื่น ๆ (พิมพ์เอง)</option>
+              </select>
+              {originalDocChoice === '__custom__' && (
+                <input className="field-input mt-2" autoFocus
+                  value={originalDocCustom}
+                  onChange={e => setOriginalDocCustom(e.target.value)}
+                  placeholder="พิมพ์ชื่อผู้ถือเอกสาร" />
+              )}
+            </div>
+            <ReadField label="ผู้บันทึก / Recorded By" value={draft.created_by_name} />
           </div>
 
           <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
