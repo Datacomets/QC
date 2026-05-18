@@ -15,8 +15,8 @@ export default function QCEdit() {
   const [loading, setLoading] = useState(true);
   const [orderNo, setOrderNo] = useState('');
   const [editReason, setEditReason] = useState('');
-  // Track edit mode: self-edit (operator on own order) vs admin-unlocked-edit
-  const [isSelfEdit, setIsSelfEdit] = useState(false);
+  // Track whether the order was approved before this edit
+  // (used to decide whether to clear approval state on save)
   const [wasApproved, setWasApproved] = useState(false);
   const [orderDate, setOrderDate] = useState('');
   const [receivedDate, setReceivedDate] = useState('');
@@ -47,19 +47,16 @@ export default function QCEdit() {
       const { data: order } = await supabase.from('qc_orders').select('*').eq('id', +orderId).single();
       if (!order) { nav('/'); return; }
 
-      // Authorization:
-      // - Owner can edit own order anytime (no admin unlock required)
-      // - Admin/qc_admin can edit any order if edit_approved=true (Need Edit was triggered)
+      // Authorization: owner OR admin/qc_admin can edit any order anytime
       const isAdminRole = profile?.role === 'admin' || profile?.role === 'qc_admin';
       const isOwner = order.created_by === profile?.id;
-      if (!isOwner && !(isAdminRole && order.edit_approved)) {
-        alert('คุณไม่มีสิทธิ์แก้ไข Order นี้ — เฉพาะเจ้าของแก้ไขได้ตลอด หรือ Admin ที่กด Need Edit แล้ว\nYou don\'t have permission to edit this Order');
+      if (!isOwner && !isAdminRole) {
+        alert('คุณไม่มีสิทธิ์แก้ไข Order นี้\nYou don\'t have permission to edit this Order');
         nav('/');
         return;
       }
 
-      // Determine edit mode for save-side handling
-      setIsSelfEdit(isOwner && !order.edit_approved);
+      // Track approval state to decide whether to clear it on save
       setWasApproved(!!order.approved);
 
       setOrderNo(order.order_no);
@@ -159,9 +156,9 @@ export default function QCEdit() {
       edit_approved: false, edit_reason: null, edit_approved_by: null, edit_approved_at: null
     };
 
-    // Self-edit on previously-approved order → return to Pending (operator changed data
-    // that approver had previously accepted; needs re-approval)
-    if (isSelfEdit && wasApproved) {
+    // Edit on previously-approved order → return to Pending (data changed after approval
+    // → re-approval required to restore audit integrity)
+    if (wasApproved) {
       Object.assign(updateRow, {
         approved: false, approved_by: null, approved_by_name: null, approved_at: null,
         accept_approved: false, accept_approved_by: null, accept_approved_by_name: null, accept_approved_at: null,
@@ -202,20 +199,13 @@ export default function QCEdit() {
       if (e2) { setMsg('บันทึกรายการของเสียไม่สำเร็จ: ' + e2.message); setSaving(false); return; }
     }
 
-    // Audit log
-    if (isSelfEdit) {
-      // No prior log row (operator bypassed admin unlock) → insert a fresh entry
-      await supabase.from('qc_order_edit_log').insert({
-        order_id: +orderId!,
-        edit_reason: 'แก้ไขโดยเจ้าของ / Self-edit by owner',
-        edited_by: profile?.id,
-        edited_at: new Date().toISOString()
-      });
-    } else {
-      // Admin unlocked → complete the existing log row
-      await supabase.from('qc_order_edit_log').update({ edited_by: profile?.id, edited_at: new Date().toISOString() })
-        .eq('order_id', +orderId!).is('edited_at', null);
-    }
+    // Audit log: insert a fresh row for every edit
+    await supabase.from('qc_order_edit_log').insert({
+      order_id: +orderId!,
+      edit_reason: 'แก้ไขข้อมูล / Direct edit',
+      edited_by: profile?.id,
+      edited_at: new Date().toISOString()
+    });
 
     setSaving(false);
     nav('/');
@@ -245,12 +235,11 @@ export default function QCEdit() {
         </div>
       )}
 
-      {isSelfEdit && (
+      {wasApproved && (
         <div className="rounded-md bg-blue-50 border border-blue-200 px-4 py-3 text-sm">
-          <span className="font-semibold text-blue-800">โหมดแก้ไขเอง / Self-Edit Mode: </span>
+          <span className="font-semibold text-blue-800">⚠ Order นี้ถูกอนุมัติไปแล้ว / Order Already Approved: </span>
           <span className="text-blue-900">
-            คุณเป็นเจ้าของ Order นี้ จึงแก้ไขได้โดยตรง
-            {wasApproved && ' — หลังบันทึก สถานะการอนุมัติจะถูกรีเซ็ตเป็น Pending'}
+            หลังบันทึก สถานะการอนุมัติจะถูกรีเซ็ตเป็น Pending (ต้อง re-approve ใหม่)
           </span>
         </div>
       )}

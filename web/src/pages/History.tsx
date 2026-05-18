@@ -124,8 +124,6 @@ export default function History() {
   const ncrPdfRef = useRef<HTMLDivElement>(null);
 
   // Edit-request modal (เดิมคือ "อนุมัติแก้ไข")
-  const [editRequestOrderId, setEditRequestOrderId] = useState<number | null>(null);
-  const [editReason, setEditReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   // PDF state
@@ -413,26 +411,6 @@ export default function History() {
   };
 
   // ขอให้แก้ไข (พร้อมเหตุผล)
-  const requestEdit = async () => {
-    if (!editRequestOrderId || !editReason.trim()) return;
-    setSubmitting(true);
-    await supabase.from('qc_orders').update({
-      edit_approved: true,
-      edit_reason: editReason.trim(),
-      edit_approved_by: profile?.id,
-      edit_approved_at: new Date().toISOString()
-    }).eq('id', editRequestOrderId);
-    await supabase.from('qc_order_edit_log').insert({
-      order_id: editRequestOrderId,
-      edit_reason: editReason.trim(),
-      approved_by: profile?.id
-    });
-    setSubmitting(false);
-    setEditRequestOrderId(null);
-    setEditReason('');
-    await loadOrders();
-  };
-
   const filtered = orders.filter(o => {
     // Status filter
     if (statusFilter) {
@@ -713,25 +691,12 @@ export default function History() {
                                                      '✓ อนุมัติ / Approve'}
                       </button>
                     )}
-                    {/* Need Edit — admin/qc_admin only, only for orders NOT owned by them
-                        (own orders can be edited directly without unlock) */}
-                    {isAdminRole && !o.edit_approved && !o.approved && o.created_by !== profile?.id && (
-                      <button type="button" onClick={e => { e.stopPropagation(); setEditRequestOrderId(o.id); }}
-                        className="btn-secondary text-sm">
-                        ✏️ ต้องแก้ไข / Need Edit
-                      </button>
-                    )}
-                    {/* Edit — Owner can edit own anytime; Admin/qc_admin can edit if Need Edit was triggered */}
-                    {(o.created_by === profile?.id || (isAdminRole && o.edit_approved)) && (
+                    {/* Edit — Owner or admin/qc_admin can edit anytime (no Need Edit unlock workflow) */}
+                    {(o.created_by === profile?.id || isAdminRole) && (
                       <button type="button" onClick={e => { e.stopPropagation(); nav(`/edit/${o.id}`); }}
                         className="btn-primary text-sm">
                         แก้ไขข้อมูล / Edit
                       </button>
-                    )}
-                    {o.edit_approved && !isAdminRole && o.created_by !== profile?.id && (
-                      <span className="text-xs text-on-surface-variant italic">
-                        รอเจ้าของแก้ไข / Awaiting owner's edit
-                      </span>
                     )}
                   </div>
                 </div>
@@ -808,35 +773,6 @@ export default function History() {
           </div>
         );
       })()}
-
-      {/* Edit Request Modal */}
-      {editRequestOrderId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setEditRequestOrderId(null)}>
-          <div className="fixed inset-0 bg-inverse/40 backdrop-blur-sm" />
-          <div className="relative bg-surface-lowest rounded-lg shadow-ambient max-w-md w-full" onClick={e => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b border-outline-variant/15">
-              <h3 className="font-display font-bold">ต้องแก้ไข / Need Edit</h3>
-              <p className="text-xs text-on-surface-variant mt-0.5">
-                Order: {orders.find(o => o.id === editRequestOrderId)?.order_no}
-              </p>
-            </div>
-            <div className="p-5 space-y-4">
-              <div>
-                <label className="field-label">เหตุผลที่ให้แก้ไข / Edit Reason *</label>
-                <textarea className="field-input" rows={3} required autoFocus
-                  value={editReason} onChange={e => setEditReason(e.target.value)}
-                  placeholder="เช่น ข้อมูลจำนวนตรวจไม่ถูกต้อง, กรอก SAP Code ผิด..." />
-              </div>
-              <div className="flex gap-2 justify-end">
-                <button onClick={() => { setEditRequestOrderId(null); setEditReason(''); }} className="btn-secondary">ยกเลิก / Cancel</button>
-                <button onClick={requestEdit} disabled={!editReason.trim() || submitting} className="btn-primary">
-                  {submitting ? 'กำลังบันทึก… / Saving…' : 'ยืนยัน / Confirm'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Per-Order PDF Preview Modal */}
       {pdfOrder && (
