@@ -457,10 +457,6 @@ export default function QCEntry() {
       </section>
 
       <section className="section space-y-4">
-        <div>
-          <label className="field-label">หมายเหตุ / Remarks</label>
-          <textarea rows={3} className="field-input" value={note} onChange={e => setNote(e.target.value)} />
-        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="field-label">เอกสารต้นฉบับ / Original Documents</label>
@@ -490,6 +486,10 @@ export default function QCEntry() {
               {profile?.full_name || '—'}
             </div>
           </div>
+        </div>
+        <div>
+          <label className="field-label">หมายเหตุ / Remarks</label>
+          <textarea rows={3} className="field-input" value={note} onChange={e => setNote(e.target.value)} />
         </div>
       </section>
 

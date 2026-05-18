@@ -323,11 +323,6 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
             } />
           </div>
 
-          <div>
-            <label className="field-label">หมายเหตุ / Remarks</label>
-            <textarea className="field-input" rows={2} value={note} onChange={e => setNote(e.target.value)} />
-          </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="field-label">เอกสารต้นฉบับ / Original Documents</label>
@@ -349,6 +344,11 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
               )}
             </div>
             <ReadField label="ผู้บันทึก / Recorded By" value={draft.created_by_name} />
+          </div>
+
+          <div>
+            <label className="field-label">หมายเหตุ / Remarks</label>
+            <textarea className="field-input" rows={2} value={note} onChange={e => setNote(e.target.value)} />
           </div>
 
           <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
