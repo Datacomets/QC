@@ -114,7 +114,7 @@
 | จำนวนรับ / Received Qty | Number | — | optional |
 | จำนวนตรวจสอบ / Sample Size | Number | — | ✅ |
 | หมายเหตุ / Note | Textarea | — | optional |
-| **เอกสารต้นฉบับอยู่ที่ / Original Doc With** (v2.2.2) | Select | dropdown 4 + Custom | optional |
+| **เอกสารต้นฉบับ / Original Documents** (v2.2.2) | Select | dropdown 4 + Custom | optional |
 | **ผู้บันทึก / Recorded By** (v2.2.2) | Display | logged-in user (auto) | display |
 
 > **ใหม่ใน v2.1:** SAP Code parser แยกโครงสร้างเป็น 7 ฟิลด์ (Item Type / Source / Category / Group / Sub-Group / Running / Revision) — แสดงเป็น Display fields แยกกัน ปรับ real-time
@@ -526,7 +526,7 @@
 
 ## 9. Done in v2.2.2 (เพิ่มจาก v2.2.1)
 
-- ✅ **Original Document With** — dropdown ใหม่ในส่วน Remarks (คุณอู๋ / WH / PD / SCM / Custom) บันทึกในคอลัมน์ `qc_orders.original_doc_with`
+- ✅ **เอกสารต้นฉบับ / Original Documents** — dropdown ใหม่ในส่วน Remarks (คุณอู๋ / WH / PD / SCM / Custom) บันทึกในคอลัมน์ `qc_orders.original_doc_with`
 - ✅ **Recorded By (display)** — แสดงชื่อ logged-in user อัตโนมัติในฟอร์ม QC Entry, Review popup, History expanded view (read-only; ใช้ `created_by → profiles.full_name`)
 - ✅ DB patches: 17
 
@@ -615,7 +615,7 @@
 ## 13. Release Notes
 
 ### v2.2.2 — 18 พฤษภาคม 2026
-- Add **Original Doc With** dropdown (คุณอู๋ / WH / PD / SCM / Custom) in Remarks section
+- Add **Original Documents** dropdown (คุณอู๋ / WH / PD / SCM / Custom) in Remarks section
 - Display **Recorded By** auto-filled from logged-in user (QC Entry / popup / History)
 - DB patches: 17
 

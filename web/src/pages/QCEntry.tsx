@@ -463,7 +463,7 @@ export default function QCEntry() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="field-label">เอกสารต้นฉบับอยู่ที่ / Original Document With</label>
+            <label className="field-label">เอกสารต้นฉบับ / Original Documents</label>
             <select className="field-select"
               value={originalDocChoice}
               onChange={e => {

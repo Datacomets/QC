@@ -330,7 +330,7 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="field-label">เอกสารต้นฉบับอยู่ที่ / Original Doc With</label>
+              <label className="field-label">เอกสารต้นฉบับ / Original Documents</label>
               <select className="field-select"
                 value={originalDocChoice}
                 onChange={e => {
