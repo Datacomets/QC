@@ -1,7 +1,7 @@
 # User Stories — QC Inspection Web App
 
-**Version:** 2.2
-**Last Updated:** 15 พฤษภาคม 2026
+**Version:** 2.2.1
+**Last Updated:** 18 พฤษภาคม 2026
 **Companion to:** [PRD.md](PRD.md)
 
 ---
@@ -114,6 +114,35 @@ US-XX: As a [role], I want [action], so that [benefit]
 - ถ้า brand อยู่ใน `brand_responsibilities` → ใช้ sales/scm จาก table นี้
 - ถ้าไม่อยู่ → fallback ใช้ `materials.sales/scm`
 - Cache โหลด `brand_responsibilities` ทั้งตารางตอน component mount (Map) → lookup O(1)
+
+### US-212: 2 ฟิลด์วันที่ — Received Date + Inspection Date (v2.2.1) 👷
+**As an** operator, **I want to** กรอกแยกระหว่าง "วันที่รับเข้าจาก supplier" และ "วันที่ตรวจสอบ" **so that** ข้อมูลตรงกับเอกสารและทำให้รายงาน trace กลับได้
+
+**Acceptance Criteria:**
+- ฟิลด์ "วันที่ตรวจ / Inspection Date" — required, default = วันนี้ (ใช้คอลัมน์ `order_date` เดิม)
+- ฟิลด์ "วันที่รับเข้า / Received Date" — optional (`received_date` ใหม่)
+- ทั้ง 2 ฟิลด์อยู่ในแถวเดียวกัน ใต้ Project Brief No.
+- แสดงในหน้า History expanded view, OrderReport PDF, NcrReport PDF
+- QCEdit รองรับการแก้ไข Received Date (Inspection Date ปกติ disabled ใน edit เพราะกำหนดเลข Order ไปแล้ว)
+
+### US-213: แสดงเลข Order preview ขณะกรอก (v2.2.1) 👷
+**As an** operator, **I want to** เห็นเลข Order ที่จะได้รับล่วงหน้าก่อน save **so that** จดบันทึก/อ้างอิงได้ทันที + รู้ว่าจะใช้เลขอะไรก่อนยืนยัน
+
+**Acceptance Criteria:**
+- แสดง chip "📋 QC2605xxx (ประมาณ / preview)" ในส่วน header ของฟอร์ม QC Entry
+- แสดงในปอปอัพ Review-before-save ด้วย
+- เลขคำนวณจาก RPC `peek_next_order_no(p_date)` โดย p_date = inspection_date ปัจจุบัน
+- อัพเดตอัตโนมัติเมื่อเปลี่ยน inspection_date
+- **เป็น preview เท่านั้น** — เลขจริงกำหนดโดย DB trigger ตอน INSERT (อาจ +1 ถ้ามีคน save ก่อน)
+
+### US-214: เลข Order ไม่ซ้ำกันถึงจะ insert พร้อมกัน (v2.2.1) 👷👑
+**As a** system, **I want to** ป้องกัน duplicate `order_no` แม้ 2 operators กด save ในวินาทีเดียวกัน **so that** ไม่มี collision
+
+**Acceptance Criteria:**
+- DB trigger `gen_order_no()` เรียก `pg_advisory_xact_lock(hashtext('qc_order_no_seq'))` ก่อน SELECT max(seq) → serialize transaction
+- Lock ปล่อยอัตโนมัติเมื่อ COMMIT/ROLLBACK (xact_lock)
+- ผลลัพธ์: ทุก INSERT ได้เลข sequential แน่นอน ไม่มีทาง duplicate
+- ทดสอบโดย concurrent INSERT 2 transactions ในเวลาเดียวกัน → ทั้งคู่ได้คนละเลข
 
 ### US-210: Project Brief No. (v2.2) 👷
 **As an** operator, **I want to** กรอกเลขที่ Project Brief ที่อ้างอิง **so that** เชื่อมโยง QC order กับเอกสาร Project Brief ได้
@@ -513,11 +542,11 @@ US-XX: As a [role], I want [action], so that [benefit]
 
 | Tag | Meaning |
 |---|---|
-| ✅ | Implemented & deployed in v2.2 |
+| ✅ | Implemented & deployed in v2.2.1 |
 | 🚧 | In progress |
 | 📋 | Backlog (future phases) |
 
-> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.2) ยกเว้นที่ระบุไว้
+> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.2.1) ยกเว้นที่ระบุไว้
 
 ---
 

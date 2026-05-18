@@ -1,8 +1,8 @@
 # Product Requirements Document (PRD)
 # QC Inspection — ระบบสุ่มตรวจคุณภาพ
 
-**Version:** 2.2
-**Last Updated:** 15 พฤษภาคม 2026
+**Version:** 2.2.1
+**Last Updated:** 18 พฤษภาคม 2026
 **Owner:** Comets Intertrade Co., Ltd.
 **Status:** Active (Production)
 **Live URL:** https://web-mocha-three-44.vercel.app
@@ -90,9 +90,11 @@
 **Header Fields:**
 | Field | Type | Auto-fill Source | Required |
 |---|---|---|---|
-| วันที่ / Date | Date | วันนี้ | ✅ |
 | Order Status (Inspection Result) | Button group | — | ✅ (Accept / Accept Lot / Reject) |
 | **เลขที่ Project Brief / Project Brief No.** (v2.2) | Text | — | ✅ |
+| **วันที่รับเข้า / Received Date** (v2.2.1) | Date | — | optional |
+| **วันที่ตรวจ / Inspection Date** (v2.2.1) | Date | วันนี้ | ✅ |
+| **เลขที่ Order / Order No (ประมาณ)** (v2.2.1) | Display | `peek_next_order_no()` RPC | display (preview) |
 | SAP Code | Text | — | ✅ |
 | รายละเอียดสินค้า | Text | materials.description | display |
 | **ประเภท / Item Type** | Display | parseSapCode (pos 1) | display |
@@ -119,6 +121,12 @@
 > - **Project Brief No.** — required field ใกล้ ๆ SAP Code, บันทึกใน `qc_orders.project_brief_no`
 > - **Sales/SCM ปรับเป็น display-only** — Operator แก้ไม่ได้จาก QC Entry; ดึงจากตาราง `brand_responsibilities` (lookup ด้วย brand ที่ normalize แล้ว — strip `*`/`"`/`'` + lowercase), fallback ไปใช้ `materials.sales/scm` ถ้า brand ไม่อยู่ใน table
 > - **Supplier name input ถูกซ่อนจาก QC Entry** (เก็บใน DB ผ่าน lookup) — เหลือเฉพาะ Vendor Code (Sup SAP) input + Sup Code display อัตโนมัติ
+>
+> **ใหม่ใน v2.2.1:**
+> - **2 ฟิลด์วันที่** — แทนที่ "วันที่ / Date" เดิมด้วย "วันที่ตรวจ / Inspection Date" (ใช้คอลัมน์ `order_date` เดิม, required) + เพิ่ม "วันที่รับเข้า / Received Date" (`received_date` ใหม่, optional)
+> - **Order No preview** — แสดง "QC2605xxx (ประมาณ)" ในส่วน header ของฟอร์ม + ในปอปอัพ review โดยเรียก RPC `peek_next_order_no(p_date)` ตามวันที่ตรวจ
+>   - Preview ไม่ reserve เลข — ถ้ามีคน insert ก่อน DB trigger จะ +1 ให้อัตโนมัติเมื่อ save จริง
+>   - DB trigger `gen_order_no()` ใส่ `pg_advisory_xact_lock(hashtext('qc_order_no_seq'))` เพื่อ serialize concurrent INSERT → กันเลขซ้ำในระดับ DB
 
 **Defect List (multi-select):**
 - ค้นหารหัสของเสียและอาการ → เลือกได้หลายอันพร้อมกัน → "เพิ่มในรายการ" → รวมเป็น 1 แถว
@@ -378,7 +386,8 @@
 
 **`qc_orders`**
 - `id` bigserial PK, `order_no unique` (auto: `QC<YY><MM><seq4>`)
-- `order_date`, `project_brief_no` (v2.2), `sap_code`, `material_description`, `brand`, `sales`, `scm`
+- `order_date` (วันที่ตรวจ / Inspection Date), `received_date` (วันที่รับเข้า, v2.2.1, nullable)
+- `project_brief_no` (v2.2), `sap_code`, `material_description`, `brand`, `sales`, `scm`
 - `sup_code`, `supplier_name`, `lot_no`
 - `received_qty`, `sample_size*`, `good_qty`, `defect_qty`
 - `critical_qty`, `major_qty`, `minor_qty`, `defect_percent` (generated column)
@@ -415,11 +424,15 @@
 
 ### Key Database Triggers
 - `qc_orders_gen_no` — auto-generate `order_no` on insert
+  - **(v2.2.1)** ใส่ `pg_advisory_xact_lock(hashtext('qc_order_no_seq'))` เพื่อ serialize concurrent INSERTs → ป้องกัน race condition (เลขซ้ำ)
 - `qc_orders_auto_ncr` — auto-insert `ncr_reports` on status='Reject'
 - `qc_orders_parse_sap` — auto-populate SAP breakdown columns on insert/update of `sap_code`
 - `materials_parse_sap` — same for materials
 - `trg_qc_details_sync` — recalc totals on detail change
 - `trg_materials_updated_at` — auto-set `updated_at`
+
+### RPC Functions
+- **`peek_next_order_no(p_date date)` → text** (v2.2.1) — preview เลข Order ถัดไปสำหรับวันที่ที่กำหนด, **ไม่ reserve เลข**; ใช้แสดงในฟอร์ม QC Entry ก่อน save จริง
 
 ---
 
@@ -509,7 +522,15 @@
 
 ---
 
-## 9. Done in v2.2 (เพิ่มจาก v2.1)
+## 9. Done in v2.2.1 (เพิ่มจาก v2.2)
+
+- ✅ **Received Date** — เพิ่มฟิลด์ "วันที่รับเข้า / Received Date" (optional) ใน QC Entry, Review popup, QCEdit, History expanded view, OrderReport PDF, NcrReport PDF
+- ✅ **Inspection Date label** — relabel "วันที่ / Date" → "วันที่ตรวจ / Inspection Date" ทุกที่ (form, popup, edit, history, PDFs)
+- ✅ **Order No preview** — แสดงเลขถัดไป `QC<YYMM><seq4>` ในฟอร์ม + popup ผ่าน RPC `peek_next_order_no(p_date)` (อัพเดต real-time เมื่อเปลี่ยน inspection date)
+- ✅ **Race-safe order_no** — DB trigger `gen_order_no()` ใส่ `pg_advisory_xact_lock` กันเลขซ้ำเมื่อ INSERT พร้อมกัน
+- ✅ DB patches: 16
+
+## Done in v2.2 (เพิ่มจาก v2.1)
 
 - ✅ **Review-before-save popup** — บันทึก QC ผ่าน 2 ขั้น (ตรวจ/แก้ → ยืนยัน)
   - แก้ Header fields, Defects (rank/qty/images), เลือกผู้อนุมัติได้ใน popup
@@ -584,6 +605,12 @@
 ---
 
 ## 13. Release Notes
+
+### v2.2.1 — 18 พฤษภาคม 2026
+- **Received Date** field (optional) + relabel "Date" → "Inspection Date" ทุกที่
+- **Order No preview** ในฟอร์ม + popup ผ่าน RPC `peek_next_order_no`
+- **Race-safe `gen_order_no()`** ด้วย `pg_advisory_xact_lock` กันเลขซ้ำใต้ concurrent insert
+- DB patches: 16
 
 ### v2.2 — 15 พฤษภาคม 2026
 - **Review-before-save popup** — แก้ข้อมูล + Defects + เลือกผู้อนุมัติใน popup ก่อน insert จริง
