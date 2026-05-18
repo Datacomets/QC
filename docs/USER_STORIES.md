@@ -1,6 +1,6 @@
 # User Stories — QC Inspection Web App
 
-**Version:** 2.2.3
+**Version:** 2.3.0
 **Last Updated:** 18 พฤษภาคม 2026
 **Companion to:** [PRD.md](PRD.md)
 
@@ -288,20 +288,21 @@ US-XX: As a [role], I want [action], so that [benefit]
 - ผู้กดต้องเป็น role `operator` เท่านั้น — admin/qc_admin/viewer **ไม่เห็นปุ่มนี้**
 - หมายเหตุ (v2.2): Operator เลือกผู้อนุมัติได้ตั้งแต่ใน Review popup ของ QC Entry ตอนบันทึกใหม่ — ปุ่มนี้ใช้กรณี order ที่ค้าง Pending เท่านั้น
 
-### US-402: Admin/QC Admin ขอให้แก้ไข Order 🛡️👑
-**As a** admin/qc_admin, **I want to** กด "ต้องแก้ไข" + ใส่เหตุผล **so that** ปลดล็อกให้เจ้าของ Order แก้ข้อมูล
+### US-402: ~~Admin/QC Admin ขอให้แก้ไข Order~~ — DEPRECATED v2.3.0
+**Removed in v2.3.0** — ปุ่ม "Need Edit" + workflow ปลดล็อกถูกยกเลิก เพราะเจ้าของ order, admin, qc_admin สามารถกดปุ่ม "แก้ไขข้อมูล / Edit" ได้โดยตรงตลอดเวลาแล้ว (ดู US-403)
 
-### US-403: Operator แก้ไข Order ของตัวเอง 👷 (v2.2.3 — ปลดข้อจำกัด)
-**As an** operator, **I want to** แก้ไข Order ของตัวเองได้ตลอดเวลาโดยไม่ต้องให้ Admin กด Need Edit **so that** แก้ข้อมูลที่ผิดได้ทันที
+### US-403: แก้ไข Order หลังบันทึก 👷🛡️👑 (v2.3.0 — ลบ Need Edit workflow)
+**As an** operator/qc_admin/admin, **I want to** แก้ไข Order ได้โดยตรงผ่านปุ่ม "Edit" **so that** แก้ข้อมูลที่ผิดได้ทันทีไม่ต้องผ่านขั้น unlock
 
-**Acceptance Criteria (v2.2.3):**
-- เจ้าของ order (`created_by === auth.uid()`) เห็นปุ่ม "แก้ไขข้อมูล / Edit" บน card ของตัวเองตลอดเวลา — ไม่ต้องรอ `edit_approved=true`
-- ปุ่ม "Need Edit" บน order ที่ตัวเองเป็นเจ้าของจะถูกซ่อน (เพราะไม่จำเป็นแล้ว)
-- เมื่อเจ้าของแก้ order ที่ **เคย approve** มาแล้ว → ระบบ clear ทุก approval column (Pending) เพื่อบังคับให้ re-approve ใหม่
-- ทุก self-edit INSERT row ใหม่ลง `qc_order_edit_log` (`edit_reason='แก้ไขโดยเจ้าของ / Self-edit by owner'`)
-- หน้า `/edit/:orderId` แสดง banner "Self-Edit Mode" + แจ้งถ้า approval จะถูกรีเซ็ต
-
-**Note:** Admin/qc_admin ยังต้องกด Need Edit เพื่อแก้ไข order ของคนอื่น (ไม่เปลี่ยน)
+**Acceptance Criteria (v2.3.0):**
+- ปุ่ม "แก้ไขข้อมูล / Edit" แสดงในการ์ดของ Order สำหรับ:
+  - **เจ้าของ order** (`created_by === auth.uid()`) — ทุก order ของตัวเอง
+  - **admin / qc_admin** — ทุก order (ของใครก็ได้)
+- Viewer ไม่เห็นปุ่ม (ไม่มีสิทธิ์)
+- เมื่อแก้ order ที่ **เคย approve** มาแล้ว → ระบบ clear ทุก approval column (Pending) — ต้อง re-approve
+- ทุก edit → INSERT row ใหม่ใน `qc_order_edit_log` (`edit_reason='แก้ไขข้อมูล / Direct edit'`)
+- หน้า `/edit/:orderId` แสดง banner เตือน ถ้า approval จะถูกรีเซ็ต
+- ปุ่ม "Need Edit" + modal กรอกเหตุผลถูก **ลบออกหมด** (ไม่จำเป็นแล้ว)
 
 ### US-404: บันทึกการแก้ไข 👷🛡️👑
 **As a** owner หรือ admin, **I want to** บันทึกข้อมูลที่แก้ไข **so that** Order กลับสู่สถานะปกติ
@@ -573,11 +574,11 @@ US-XX: As a [role], I want [action], so that [benefit]
 
 | Tag | Meaning |
 |---|---|
-| ✅ | Implemented & deployed in v2.2.3 |
+| ✅ | Implemented & deployed in v2.3.0 |
 | 🚧 | In progress |
 | 📋 | Backlog (future phases) |
 
-> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.2.3) ยกเว้นที่ระบุไว้
+> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.3.0) ยกเว้นที่ระบุไว้
 
 ---
 

@@ -1,7 +1,7 @@
 # Product Requirements Document (PRD)
 # QC Inspection — ระบบสุ่มตรวจคุณภาพ
 
-**Version:** 2.2.3
+**Version:** 2.3.0
 **Last Updated:** 18 พฤษภาคม 2026
 **Owner:** Comets Intertrade Co., Ltd.
 **Status:** Active (Production)
@@ -223,12 +223,11 @@
   - Reject → "ยืนยันการปฏิเสธ / Confirm Reject" *(v2.2 ปรับคำให้สุภาพ)*
   - คลิก → modal เลือกผู้อนุมัติ (dropdown qc_admin/admin หรือ Custom name) → Confirm
   - หมายเหตุ: ใน v2.2 Operator สามารถเลือกผู้อนุมัติได้ตั้งแต่ใน review popup ของ QC Entry แล้ว — ปุ่มนี้ใช้กรณี order ที่บันทึกแบบยังไม่ approve เท่านั้น
-- **✏️ ต้องแก้ไข / Need Edit** (admin/qc_admin บน order ของคนอื่นเท่านั้น) → modal ขอเหตุผล → set `edit_approved=true`
 - **แก้ไขข้อมูล / Edit** — สิทธิ์เข้าหน้าแก้ไข `/edit/:orderId`
-  - **(v2.2.3)** เจ้าของ order (`created_by === auth.uid()`) แก้ไขได้ตลอด — ไม่ต้องให้ admin unlock ก่อน
-  - Admin/qc_admin แก้ไข order ของคนอื่นได้เมื่อ `edit_approved=true` เท่านั้น
-  - **Self-edit บน order ที่อนุมัติแล้ว** → ระบบ clear ทุก approval column (กลับเป็น Pending) เพราะข้อมูลเปลี่ยน → ต้อง re-approve ใหม่
-  - Audit: ทุก self-edit INSERT row ใหม่ลง `qc_order_edit_log` (`edit_reason='แก้ไขโดยเจ้าของ / Self-edit by owner'`)
+  - **(v2.3.0) ลบ Need Edit workflow** — เจ้าของ order, admin, qc_admin แก้ได้โดยตรงตลอดเวลา
+  - **แก้ไข order ที่อนุมัติแล้ว** → ระบบ clear ทุก approval column (กลับเป็น Pending) เพราะข้อมูลเปลี่ยน → ต้อง re-approve ใหม่
+  - Audit: ทุก edit INSERT row ใหม่ลง `qc_order_edit_log` (`edit_reason='แก้ไขข้อมูล / Direct edit'`)
+  - คอลัมน์ `edit_approved`, `edit_reason`, `edit_approved_by`, `edit_approved_at` ใน DB ยังเก็บไว้ (audit history) แต่ไม่ได้ set true อีกแล้ว
 
 **Two Independent States** (สำคัญ):
 - `inspection_result` (Accept / Accept Lot / Reject) — กำหนดโดย Operator ตอนบันทึก
@@ -528,7 +527,16 @@
 
 ---
 
-## 9. Done in v2.2.3 (เพิ่มจาก v2.2.2)
+## 9. Done in v2.3.0 (เพิ่มจาก v2.2.3)
+
+- ✅ **ลบ Need Edit workflow** — เจ้าของ order, admin, qc_admin แก้ Order ได้โดยตรงตลอดเวลา ไม่ต้องผ่านขั้น "Need Edit" ของ admin อีกแล้ว
+- ✅ History: ลบปุ่ม "✏️ ต้องแก้ไข / Need Edit" + modal กรอกเหตุผล + handler `requestEdit()` ออกหมด
+- ✅ QCEdit: guard เปลี่ยนเป็น (owner OR admin/qc_admin) อย่างเดียว
+- ✅ Edit ทุกครั้งบน approved order → clear approval state (กลับเป็น Pending)
+- ✅ Edit ทุกครั้ง → INSERT log row ใหม่ (`edit_reason='แก้ไขข้อมูล / Direct edit'`)
+- ✅ Guide ปรับ section "Need Edit Workflow" → "แก้ไข Order หลังบันทึก"
+
+## Done in v2.2.3 (เพิ่มจาก v2.2.2)
 
 - ✅ **Operator self-edit** — เจ้าของ order แก้ไขข้อมูลของตัวเองได้ตลอดเวลาโดยไม่ต้องให้ admin กด Need Edit ปลดล็อก
 - ✅ **Approval state cleared on self-edit** — ถ้า order ถูก approve ไปแล้วและเจ้าของแก้ไข ระบบ clear approval columns ทุก field (กลับเป็น Pending) → ต้อง re-approve ใหม่เพื่อความถูกต้องของ audit
@@ -624,6 +632,13 @@
 ---
 
 ## 13. Release Notes
+
+### v2.3.0 — 18 พฤษภาคม 2026
+- **ลบ Need Edit workflow ออกหมด** — ปุ่ม "✏️ ต้องแก้ไข" + modal กรอกเหตุผลในหน้า History
+- Edit Order ตรงๆ ทันที — เจ้าของ order และ admin/qc_admin มีปุ่ม "แก้ไขข้อมูล / Edit" ตลอดเวลา
+- ทุก edit บน approved order → reset approval เป็น Pending
+- ทุก edit → INSERT row ใหม่ใน `qc_order_edit_log`
+- Guide ปรับให้ตรง
 
 ### v2.2.3 — 18 พฤษภาคม 2026
 - **Operator self-edit own orders** — เจ้าของ order แก้ไขได้ตลอด ไม่ต้องให้ admin ปลดล็อก
