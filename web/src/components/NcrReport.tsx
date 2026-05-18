@@ -15,6 +15,8 @@ interface NcrInfo {
 interface OrderInfo {
   order_no: string;
   order_date: string;
+  received_date?: string | null;
+  project_brief_no?: string | null;
   sap_code: string;
   material_description: string | null;
   brand: string | null;
@@ -97,7 +99,8 @@ const NcrReport = forwardRef<HTMLDivElement, Props>(function NcrReport({ ncr, or
       <Section number="1" title="ORDER INFORMATION" titleTh="ข้อมูล Order">
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
           <tbody>
-            <Row label1="Order No" value1={order.order_no} label2="Order Date" value2={fmtDate(order.order_date)} />
+            <Row label1="Order No" value1={order.order_no} label2="Project Brief No." value2={order.project_brief_no || '-'} />
+            <Row label1="Received Date" value1={order.received_date ? fmtDate(order.received_date) : '-'} label2="Inspection Date" value2={fmtDate(order.order_date)} />
             <Row label1="SAP Code" value1={order.sap_code} label2="Type" value2={getProductType(order.sap_code) || '-'} />
             <Row label1="Description" value1={order.material_description || '-'} colSpan2 />
             <Row label1="Brand" value1={order.brand || '-'} label2="Inspection Result" value2={order.status} />

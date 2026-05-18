@@ -13,6 +13,8 @@ interface Order {
   id: number;
   order_no: string;
   order_date: string;
+  received_date: string | null;
+  project_brief_no: string | null;
   sap_code: string;
   material_description: string | null;
   brand: string | null;
@@ -591,6 +593,9 @@ export default function History() {
                     </div>
                   )}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                    <InfoField label="Project Brief No." value={o.project_brief_no} />
+                    <InfoField label="วันที่รับเข้า / Received Date" value={o.received_date ? fmtDate(o.received_date) : null} />
+                    <InfoField label="วันที่ตรวจ / Inspection Date" value={fmtDate(o.order_date)} />
                     <InfoField label="รหัส SAP / SAP Code" value={o.sap_code} />
                     <InfoField label="ประเภท / Type" value={getProductType(o.sap_code)} />
                     <InfoField label="รายละเอียด / Description" value={o.material_description} />
@@ -903,7 +908,7 @@ export default function History() {
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
                       <InfoField label="เลขที่ Order / Order No" value={order.order_no} />
-                      <InfoField label="วันที่ / Date" value={fmtDate(order.order_date)} />
+                      <InfoField label="วันที่ตรวจ / Inspection Date" value={fmtDate(order.order_date)} />
                       <InfoField label="ผลตรวจ / Result" value={order.status} />
                       <InfoField label="รหัส SAP / SAP Code" value={order.sap_code} />
                       <InfoField label="ประเภท / Type" value={getProductType(order.sap_code)} />

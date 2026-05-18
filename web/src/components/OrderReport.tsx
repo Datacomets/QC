@@ -4,6 +4,8 @@ import { fmtDate, getProductType } from '../lib/utils';
 interface OrderInfo {
   order_no: string;
   order_date: string;
+  received_date?: string | null;
+  project_brief_no?: string | null;
   sap_code: string;
   material_description: string | null;
   brand: string | null;
@@ -67,7 +69,10 @@ const OrderReport = forwardRef<HTMLDivElement, Props>(function OrderReport({ ord
           </div>
           <div style={{ textAlign: 'right', fontSize: '11px' }}>
             <div><b>Order No:</b> <span style={{ fontFamily: 'monospace', fontSize: '13px' }}>{order.order_no}</span></div>
-            <div style={{ marginTop: '2px' }}><b>Date:</b> {fmtDate(order.order_date)}</div>
+            <div style={{ marginTop: '2px' }}><b>วันที่ตรวจ / Inspection:</b> {fmtDate(order.order_date)}</div>
+            {order.received_date && (
+              <div style={{ marginTop: '2px' }}><b>วันที่รับเข้า / Received:</b> {fmtDate(order.received_date)}</div>
+            )}
             <div style={{ marginTop: '4px', display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
               <span style={{
                 display: 'inline-block', padding: '1px 8px', borderRadius: '3px', fontSize: '10px', fontWeight: 700,
@@ -88,7 +93,8 @@ const OrderReport = forwardRef<HTMLDivElement, Props>(function OrderReport({ ord
       <Section number="1" title="ORDER INFORMATION" titleTh="ข้อมูล Order">
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
           <tbody>
-            <Row label1="Order No" value1={order.order_no} label2="Order Date" value2={fmtDate(order.order_date)} />
+            <Row label1="Order No" value1={order.order_no} label2="Project Brief No." value2={order.project_brief_no || '-'} />
+            <Row label1="Received Date" value1={order.received_date ? fmtDate(order.received_date) : '-'} label2="Inspection Date" value2={fmtDate(order.order_date)} />
             <Row label1="SAP Code" value1={order.sap_code} label2="Type" value2={getProductType(order.sap_code) || '-'} />
             <Row label1="Description" value1={order.material_description || '-'} colSpan2 />
             <Row label1="Brand" value1={order.brand || '-'} label2="Inspection Result" value2={order.status} />

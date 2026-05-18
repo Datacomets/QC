@@ -16,8 +16,10 @@ export default function QCEntry() {
   const { profile } = useAuth();
   const today = new Date().toISOString().slice(0, 10);
 
-  const [orderDate, setOrderDate] = useState(today);
+  const [orderDate, setOrderDate] = useState(today);          // วันที่ตรวจ / Inspection Date
+  const [receivedDate, setReceivedDate] = useState('');        // วันที่รับเข้า / Received Date (optional)
   const [projectBriefNo, setProjectBriefNo] = useState('');
+  const [previewOrderNo, setPreviewOrderNo] = useState('');    // peek next QC<YYMM><seq4>
   const [sapCode, setSapCode] = useState('');
   const [material, setMaterial] = useState<Material | null>(null);
   const [supSapCode, setSupSapCode] = useState('');
@@ -79,6 +81,15 @@ export default function QCEntry() {
     }, 400);
     return () => clearTimeout(t);
   }, [sapCode, brandMap]);
+
+  // Preview next order_no for the chosen inspection date (peek only — not reserved)
+  useEffect(() => {
+    if (!orderDate) { setPreviewOrderNo(''); return; }
+    supabase.rpc('peek_next_order_no', { p_date: orderDate }).then(({ data, error }) => {
+      if (error || !data) { setPreviewOrderNo(''); return; }
+      setPreviewOrderNo(String(data));
+    });
+  }, [orderDate]);
 
   // Resolve Sup SAP Code → supplier (debounced)
   useEffect(() => {
@@ -166,7 +177,9 @@ export default function QCEntry() {
 
     setDraft({
       order_date: orderDate,
+      received_date: receivedDate || null,
       project_brief_no: projectBriefNo.trim(),
+      preview_order_no: previewOrderNo || null,
       sap_code: sapCode.trim(),
       material_description: material?.description || null,
       brand: material?.brand || null,
@@ -190,7 +203,7 @@ export default function QCEntry() {
   };
 
   const handleSaved = (orderNo: string, ncrNo: string | null) => {
-    setProjectBriefNo(''); setSapCode(''); setSupSapCode(''); setSalesVal(''); setScmVal('');
+    setReceivedDate(''); setProjectBriefNo(''); setSapCode(''); setSupSapCode(''); setSalesVal(''); setScmVal('');
     setLotNo(''); setReceivedQty(''); setSampleSize(''); setOrderStatus('');
     setNote(''); setDetails([]); setStaging([]);
     setMsg(`✅ บันทึก Order ${orderNo} สำเร็จ${ncrNo ? ` — NCR: ${ncrNo}` : ''}`);
@@ -209,7 +222,18 @@ export default function QCEntry() {
       <div className="flex items-baseline justify-between">
         <div>
           <h1 className="font-display text-3xl font-bold tracking-tight">บันทึกการสุ่มตรวจ / QC Entry</h1>
-          <p className="text-sm text-on-surface-variant mt-1">ผู้บันทึก / Inspector: {profile?.full_name}</p>
+          <p className="text-sm text-on-surface-variant mt-1">
+            ผู้บันทึก / Inspector: {profile?.full_name}
+            {previewOrderNo && (
+              <>
+                {' · '}
+                <span className="inline-flex items-center gap-1 ml-1 px-2 py-0.5 rounded-md bg-primary/10 text-primary font-mono text-xs">
+                  📋 {previewOrderNo}
+                  <span className="text-on-surface-variant font-sans font-normal">(ประมาณ / preview)</span>
+                </span>
+              </>
+            )}
+          </p>
         </div>
         <div className="text-right">
           <div className="text-[11px] uppercase tracking-wider text-on-surface-variant">% ของเสีย / Defect Rate</div>
@@ -221,15 +245,27 @@ export default function QCEntry() {
 
       {/* Master info */}
       <section className="section grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div>
-          <label className="field-label">วันที่ / Date</label>
-          <input type="date" className="field-input" value={orderDate} onChange={e => setOrderDate(e.target.value)} />
-        </div>
-        <div className="md:col-span-2">
+        <div className="md:col-span-3">
           <label className="field-label">Project Brief No. *</label>
           <input className="field-input" required value={projectBriefNo}
             onChange={e => setProjectBriefNo(e.target.value)}
             placeholder="หมายเลขใบ Project Brief" />
+        </div>
+        <div>
+          <label className="field-label">วันที่รับเข้า / Received Date</label>
+          <input type="date" className="field-input" value={receivedDate}
+            onChange={e => setReceivedDate(e.target.value)} />
+        </div>
+        <div>
+          <label className="field-label">วันที่ตรวจ / Inspection Date *</label>
+          <input type="date" required className="field-input" value={orderDate}
+            onChange={e => setOrderDate(e.target.value)} />
+        </div>
+        <div>
+          <label className="field-label">เลขที่ Order / Order No (ประมาณ)</label>
+          <div className="field-input bg-surface-low text-on-surface-variant font-mono cursor-not-allowed">
+            {previewOrderNo || '—'}
+          </div>
         </div>
         <div className="md:col-span-3">
           <label className="field-label">รหัส SAP / SAP Code *</label>

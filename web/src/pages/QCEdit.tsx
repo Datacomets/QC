@@ -16,6 +16,8 @@ export default function QCEdit() {
   const [orderNo, setOrderNo] = useState('');
   const [editReason, setEditReason] = useState('');
   const [orderDate, setOrderDate] = useState('');
+  const [receivedDate, setReceivedDate] = useState('');
+  const [projectBriefNo, setProjectBriefNo] = useState('');
   const [sapCode, setSapCode] = useState('');
   const [materialDesc, setMaterialDesc] = useState('');
   const [brand, setBrand] = useState('');
@@ -54,6 +56,8 @@ export default function QCEdit() {
       setOrderNo(order.order_no);
       setEditReason(order.edit_reason || '');
       setOrderDate(order.order_date);
+      setReceivedDate(order.received_date || '');
+      setProjectBriefNo(order.project_brief_no || '');
       setSapCode(order.sap_code || '');
       setMaterialDesc(order.material_description || '');
       setBrand(order.brand || '');
@@ -136,6 +140,8 @@ export default function QCEdit() {
 
     // Update order
     const { error } = await supabase.from('qc_orders').update({
+      received_date: receivedDate || null,
+      project_brief_no: projectBriefNo.trim() || null,
       sap_code: sapCode.trim(), material_description: materialDesc, brand, sales, scm,
       sup_code: supCode.trim() || null, supplier_name: supplierName || null,
       lot_no: lotNo.trim() || null,
@@ -208,16 +214,19 @@ export default function QCEdit() {
 
       {/* Order info */}
       <section className="section grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div>
-          <label className="field-label">วันที่ / Date</label>
-          <input type="date" className="field-input bg-surface-mid" value={orderDate} disabled />
+        <div className="md:col-span-3">
+          <label className="field-label">Project Brief No.</label>
+          <input className="field-input" value={projectBriefNo}
+            onChange={e => setProjectBriefNo(e.target.value)} />
         </div>
         <div>
-          <label className="field-label">รหัส SAP / SAP Code</label>
-          <input className="field-input" value={sapCode} onChange={e => setSapCode(e.target.value)} />
-          {sapBreakdownLabel(sapCode) && (
-            <p className="text-[11px] text-on-surface-variant mt-1">🏷️ {sapBreakdownLabel(sapCode)}</p>
-          )}
+          <label className="field-label">วันที่รับเข้า / Received Date</label>
+          <input type="date" className="field-input" value={receivedDate}
+            onChange={e => setReceivedDate(e.target.value)} />
+        </div>
+        <div>
+          <label className="field-label">วันที่ตรวจ / Inspection Date</label>
+          <input type="date" className="field-input bg-surface-mid" value={orderDate} disabled />
         </div>
         <div>
           <label className="field-label">ผลตรวจ / Inspection Result</label>
@@ -227,6 +236,13 @@ export default function QCEdit() {
             <option value="Accept Lot">รับ Lot / Accept Lot</option>
             <option value="Reject">ไม่ผ่าน / Reject</option>
           </select>
+        </div>
+        <div className="md:col-span-3">
+          <label className="field-label">รหัส SAP / SAP Code</label>
+          <input className="field-input" value={sapCode} onChange={e => setSapCode(e.target.value)} />
+          {sapBreakdownLabel(sapCode) && (
+            <p className="text-[11px] text-on-surface-variant mt-1">🏷️ {sapBreakdownLabel(sapCode)}</p>
+          )}
         </div>
         <div className="md:col-span-3">
           <label className="field-label">รายละเอียดสินค้า / Description</label>

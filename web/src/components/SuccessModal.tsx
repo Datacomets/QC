@@ -12,7 +12,9 @@ interface DraftDefect {
 }
 
 interface OrderDraft {
-  order_date: string;
+  order_date: string;                     // วันที่ตรวจ / Inspection Date (required)
+  received_date: string | null;            // วันที่รับเข้า / Received Date (optional)
+  preview_order_no: string | null;         // peeked QC<YYMM><seq4> for display only
   project_brief_no: string;
   sap_code: string;
   material_description: string | null;
@@ -41,6 +43,7 @@ interface Props {
 export default function SuccessModal({ draft, onClose, onSaved }: Props) {
   // Editable order fields (Sales/SCM read-only — sourced from brand_responsibilities)
   const [orderDate, setOrderDate] = useState(draft.order_date);
+  const [receivedDate, setReceivedDate] = useState(draft.received_date || '');
   const [lotNo, setLotNo] = useState(draft.lot_no || '');
   const [receivedQty, setReceivedQty] = useState<number | ''>(draft.received_qty ?? '');
   const [sampleSize, setSampleSize] = useState(draft.sample_size);
@@ -76,12 +79,13 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
 
   const isDirty = useMemo(() => {
     return orderDate !== draft.order_date
+      || receivedDate !== (draft.received_date || '')
       || lotNo !== (draft.lot_no || '')
       || (receivedQty === '' ? null : Number(receivedQty)) !== draft.received_qty
       || sampleSize !== draft.sample_size
       || note !== (draft.note || '')
       || details !== draft.details;
-  }, [orderDate, lotNo, receivedQty, sampleSize, note, details, draft]);
+  }, [orderDate, receivedDate, lotNo, receivedQty, sampleSize, note, details, draft]);
 
   const saveLabel = saving ? 'กำลังบันทึก…'
     : hasApprover ? '✓ บันทึก + ยืนยัน / Save & Confirm'
@@ -157,6 +161,7 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
     // Build qc_orders INSERT payload
     const insertRow: Record<string, unknown> = {
       order_date: orderDate,
+      received_date: receivedDate || null,
       project_brief_no: draft.project_brief_no,
       sap_code: draft.sap_code,
       material_description: draft.material_description,
@@ -273,8 +278,11 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
         <div className="px-6 py-5 space-y-5">
           {/* Info grid: editable + readonly */}
           <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-            <EditField label="วันที่ / Date" type="date" value={orderDate} onChange={setOrderDate} />
-            <ReadField label="Project Brief No." value={draft.project_brief_no} mono />
+            <ReadField label="เลขที่ Order (ประมาณ) / Order No (preview)"
+              value={draft.preview_order_no || '— จะถูกกำหนดตอนบันทึก —'} mono className="col-span-2" />
+            <ReadField label="Project Brief No." value={draft.project_brief_no} mono className="col-span-2" />
+            <EditField label="วันที่รับเข้า / Received Date" type="date" value={receivedDate} onChange={setReceivedDate} />
+            <EditField label="วันที่ตรวจ / Inspection Date *" type="date" value={orderDate} onChange={setOrderDate} />
             <ReadField label="รหัส SAP / SAP Code" value={draft.sap_code} mono className="col-span-2" />
             <ReadField label="รายละเอียด / Description" value={draft.material_description} className="col-span-2" />
             <ReadField label="ประเภท / Type" value={getProductType(draft.sap_code)} />
