@@ -1,7 +1,7 @@
 # Product Requirements Document (PRD)
 # QC Inspection — ระบบสุ่มตรวจคุณภาพ
 
-**Version:** 2.2.1
+**Version:** 2.2.2
 **Last Updated:** 18 พฤษภาคม 2026
 **Owner:** Comets Intertrade Co., Ltd.
 **Status:** Active (Production)
@@ -114,6 +114,8 @@
 | จำนวนรับ / Received Qty | Number | — | optional |
 | จำนวนตรวจสอบ / Sample Size | Number | — | ✅ |
 | หมายเหตุ / Note | Textarea | — | optional |
+| **เอกสารต้นฉบับอยู่ที่ / Original Doc With** (v2.2.2) | Select | dropdown 4 + Custom | optional |
+| **ผู้บันทึก / Recorded By** (v2.2.2) | Display | logged-in user (auto) | display |
 
 > **ใหม่ใน v2.1:** SAP Code parser แยกโครงสร้างเป็น 7 ฟิลด์ (Item Type / Source / Category / Group / Sub-Group / Running / Revision) — แสดงเป็น Display fields แยกกัน ปรับ real-time
 >
@@ -387,7 +389,7 @@
 **`qc_orders`**
 - `id` bigserial PK, `order_no unique` (auto: `QC<YY><MM><seq4>`)
 - `order_date` (วันที่ตรวจ / Inspection Date), `received_date` (วันที่รับเข้า, v2.2.1, nullable)
-- `project_brief_no` (v2.2), `sap_code`, `material_description`, `brand`, `sales`, `scm`
+- `project_brief_no` (v2.2), `original_doc_with` (v2.2.2, nullable), `sap_code`, `material_description`, `brand`, `sales`, `scm`
 - `sup_code`, `supplier_name`, `lot_no`
 - `received_qty`, `sample_size*`, `good_qty`, `defect_qty`
 - `critical_qty`, `major_qty`, `minor_qty`, `defect_percent` (generated column)
@@ -522,7 +524,13 @@
 
 ---
 
-## 9. Done in v2.2.1 (เพิ่มจาก v2.2)
+## 9. Done in v2.2.2 (เพิ่มจาก v2.2.1)
+
+- ✅ **Original Document With** — dropdown ใหม่ในส่วน Remarks (คุณอู๋ / WH / PD / SCM / Custom) บันทึกในคอลัมน์ `qc_orders.original_doc_with`
+- ✅ **Recorded By (display)** — แสดงชื่อ logged-in user อัตโนมัติในฟอร์ม QC Entry, Review popup, History expanded view (read-only; ใช้ `created_by → profiles.full_name`)
+- ✅ DB patches: 17
+
+## Done in v2.2.1 (เพิ่มจาก v2.2)
 
 - ✅ **Received Date** — เพิ่มฟิลด์ "วันที่รับเข้า / Received Date" (optional) ใน QC Entry, Review popup, QCEdit, History expanded view, OrderReport PDF, NcrReport PDF
 - ✅ **Inspection Date label** — relabel "วันที่ / Date" → "วันที่ตรวจ / Inspection Date" ทุกที่ (form, popup, edit, history, PDFs)
@@ -605,6 +613,11 @@
 ---
 
 ## 13. Release Notes
+
+### v2.2.2 — 18 พฤษภาคม 2026
+- Add **Original Doc With** dropdown (คุณอู๋ / WH / PD / SCM / Custom) in Remarks section
+- Display **Recorded By** auto-filled from logged-in user (QC Entry / popup / History)
+- DB patches: 17
 
 ### v2.2.1 — 18 พฤษภาคม 2026
 - **Received Date** field (optional) + relabel "Date" → "Inspection Date" ทุกที่

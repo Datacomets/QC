@@ -1,6 +1,6 @@
 # User Stories — QC Inspection Web App
 
-**Version:** 2.2.1
+**Version:** 2.2.2
 **Last Updated:** 18 พฤษภาคม 2026
 **Companion to:** [PRD.md](PRD.md)
 
@@ -134,6 +134,28 @@ US-XX: As a [role], I want [action], so that [benefit]
 - เลขคำนวณจาก RPC `peek_next_order_no(p_date)` โดย p_date = inspection_date ปัจจุบัน
 - อัพเดตอัตโนมัติเมื่อเปลี่ยน inspection_date
 - **เป็น preview เท่านั้น** — เลขจริงกำหนดโดย DB trigger ตอน INSERT (อาจ +1 ถ้ามีคน save ก่อน)
+
+### US-215: บันทึกผู้ถือเอกสารต้นฉบับ (v2.2.2) 👷
+**As an** operator, **I want to** เลือกจาก dropdown ว่าเอกสารฉบับจริงอยู่ที่ใคร **so that** ทีมอื่นรู้ว่าจะตามเอกสารกระดาษได้ที่ไหน
+
+**Acceptance Criteria:**
+- Dropdown ใน Remarks section ของ QC Entry
+- 4 ค่ามาตรฐาน: **คุณอู๋ / WH / PD / SCM**
+- ค่า **"อื่น ๆ (พิมพ์เอง)"** → text input เพิ่มเติม
+- Optional (เว้นว่างได้)
+- บันทึกใน `qc_orders.original_doc_with text`
+- แก้ไขได้ใน Review-before-save popup
+- แสดงในหน้า History expanded view
+
+### US-216: แสดงชื่อผู้บันทึก (v2.2.2) 👷👀🛡️👑
+**As a** ทุก role, **I want to** เห็นชื่อผู้ที่บันทึก order เข้าระบบ **so that** ทราบที่มาของข้อมูลโดยไม่ต้องไปดู approval log
+
+**Acceptance Criteria:**
+- ฟิลด์ "ผู้บันทึก / Recorded By" — read-only, ไม่ต้องกรอก
+- ในฟอร์ม QC Entry: ดึงจาก logged-in user (`profile.full_name`)
+- ใน Review popup: ดึงจาก draft.created_by_name (ส่งมาจาก QCEntry)
+- ใน History expanded view: ดึงจาก `profilesMap[created_by]` (look up profiles)
+- ไม่มีคอลัมน์ DB ใหม่ — ใช้ `created_by` UUID เดิมที่อ้างอิง profiles
 
 ### US-214: เลข Order ไม่ซ้ำกันถึงจะ insert พร้อมกัน (v2.2.1) 👷👑
 **As a** system, **I want to** ป้องกัน duplicate `order_no` แม้ 2 operators กด save ในวินาทีเดียวกัน **so that** ไม่มี collision
@@ -542,11 +564,11 @@ US-XX: As a [role], I want [action], so that [benefit]
 
 | Tag | Meaning |
 |---|---|
-| ✅ | Implemented & deployed in v2.2.1 |
+| ✅ | Implemented & deployed in v2.2.2 |
 | 🚧 | In progress |
 | 📋 | Backlog (future phases) |
 
-> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.2.1) ยกเว้นที่ระบุไว้
+> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.2.2) ยกเว้นที่ระบุไว้
 
 ---
 
