@@ -1,7 +1,7 @@
 # Product Requirements Document (PRD)
 # QC Inspection — ระบบสุ่มตรวจคุณภาพ
 
-**Version:** 2.2.2
+**Version:** 2.2.3
 **Last Updated:** 18 พฤษภาคม 2026
 **Owner:** Comets Intertrade Co., Ltd.
 **Status:** Active (Production)
@@ -223,8 +223,12 @@
   - Reject → "ยืนยันการปฏิเสธ / Confirm Reject" *(v2.2 ปรับคำให้สุภาพ)*
   - คลิก → modal เลือกผู้อนุมัติ (dropdown qc_admin/admin หรือ Custom name) → Confirm
   - หมายเหตุ: ใน v2.2 Operator สามารถเลือกผู้อนุมัติได้ตั้งแต่ใน review popup ของ QC Entry แล้ว — ปุ่มนี้ใช้กรณี order ที่บันทึกแบบยังไม่ approve เท่านั้น
-- **✏️ ต้องแก้ไข / Need Edit** (admin/qc_admin) → modal ขอเหตุผล → set `edit_approved=true`
-- **แก้ไขข้อมูล / Edit** (เจ้าของ order หรือ admin เมื่อ `edit_approved=true`) → ไป `/edit/:orderId`
+- **✏️ ต้องแก้ไข / Need Edit** (admin/qc_admin บน order ของคนอื่นเท่านั้น) → modal ขอเหตุผล → set `edit_approved=true`
+- **แก้ไขข้อมูล / Edit** — สิทธิ์เข้าหน้าแก้ไข `/edit/:orderId`
+  - **(v2.2.3)** เจ้าของ order (`created_by === auth.uid()`) แก้ไขได้ตลอด — ไม่ต้องให้ admin unlock ก่อน
+  - Admin/qc_admin แก้ไข order ของคนอื่นได้เมื่อ `edit_approved=true` เท่านั้น
+  - **Self-edit บน order ที่อนุมัติแล้ว** → ระบบ clear ทุก approval column (กลับเป็น Pending) เพราะข้อมูลเปลี่ยน → ต้อง re-approve ใหม่
+  - Audit: ทุก self-edit INSERT row ใหม่ลง `qc_order_edit_log` (`edit_reason='แก้ไขโดยเจ้าของ / Self-edit by owner'`)
 
 **Two Independent States** (สำคัญ):
 - `inspection_result` (Accept / Accept Lot / Reject) — กำหนดโดย Operator ตอนบันทึก
@@ -524,7 +528,14 @@
 
 ---
 
-## 9. Done in v2.2.2 (เพิ่มจาก v2.2.1)
+## 9. Done in v2.2.3 (เพิ่มจาก v2.2.2)
+
+- ✅ **Operator self-edit** — เจ้าของ order แก้ไขข้อมูลของตัวเองได้ตลอดเวลาโดยไม่ต้องให้ admin กด Need Edit ปลดล็อก
+- ✅ **Approval state cleared on self-edit** — ถ้า order ถูก approve ไปแล้วและเจ้าของแก้ไข ระบบ clear approval columns ทุก field (กลับเป็น Pending) → ต้อง re-approve ใหม่เพื่อความถูกต้องของ audit
+- ✅ **Self-edit audit log** — INSERT row ใหม่ลง `qc_order_edit_log` พร้อม `edit_reason='แก้ไขโดยเจ้าของ / Self-edit by owner'` ทุกครั้งที่เจ้าของแก้ไขแบบไม่ผ่าน admin
+- ✅ **UX:** Self-Edit Mode banner ในหน้า `/edit/:orderId` อธิบาย flow + แจ้งว่า approval จะถูกรีเซ็ต (ถ้าเคย approve)
+
+## Done in v2.2.2 (เพิ่มจาก v2.2.1)
 
 - ✅ **เอกสารต้นฉบับ / Original Documents** — dropdown ใหม่ในส่วน Remarks (คุณอู๋ / WH / PD / SCM / Custom) บันทึกในคอลัมน์ `qc_orders.original_doc_with`
 - ✅ **Recorded By (display)** — แสดงชื่อ logged-in user อัตโนมัติในฟอร์ม QC Entry, Review popup, History expanded view (read-only; ใช้ `created_by → profiles.full_name`)
@@ -613,6 +624,12 @@
 ---
 
 ## 13. Release Notes
+
+### v2.2.3 — 18 พฤษภาคม 2026
+- **Operator self-edit own orders** — เจ้าของ order แก้ไขได้ตลอด ไม่ต้องให้ admin ปลดล็อก
+- Approved order ที่เจ้าของแก้ → approval state รีเซ็ตเป็น Pending → ต้อง re-approve
+- Self-edit log: INSERT row ใหม่ลง `qc_order_edit_log` (audit trail ครบ)
+- ไม่ต้อง DB migration — RLS ปัจจุบันรองรับอยู่แล้ว (operator มี UPDATE policy)
 
 ### v2.2.2 — 18 พฤษภาคม 2026
 - Add **Original Documents** dropdown (คุณอู๋ / WH / PD / SCM / Custom) in Remarks section

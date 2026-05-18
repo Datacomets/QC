@@ -1,6 +1,6 @@
 # User Stories — QC Inspection Web App
 
-**Version:** 2.2.2
+**Version:** 2.2.3
 **Last Updated:** 18 พฤษภาคม 2026
 **Companion to:** [PRD.md](PRD.md)
 
@@ -291,8 +291,17 @@ US-XX: As a [role], I want [action], so that [benefit]
 ### US-402: Admin/QC Admin ขอให้แก้ไข Order 🛡️👑
 **As a** admin/qc_admin, **I want to** กด "ต้องแก้ไข" + ใส่เหตุผล **so that** ปลดล็อกให้เจ้าของ Order แก้ข้อมูล
 
-### US-403: Operator แก้ไข Order ของตัวเอง 👷
-**As an** operator, **I want to** แก้ไข Order ของตัวเองเมื่อได้รับอนุมัติแล้ว **so that** แก้ข้อมูลที่ผิดได้
+### US-403: Operator แก้ไข Order ของตัวเอง 👷 (v2.2.3 — ปลดข้อจำกัด)
+**As an** operator, **I want to** แก้ไข Order ของตัวเองได้ตลอดเวลาโดยไม่ต้องให้ Admin กด Need Edit **so that** แก้ข้อมูลที่ผิดได้ทันที
+
+**Acceptance Criteria (v2.2.3):**
+- เจ้าของ order (`created_by === auth.uid()`) เห็นปุ่ม "แก้ไขข้อมูล / Edit" บน card ของตัวเองตลอดเวลา — ไม่ต้องรอ `edit_approved=true`
+- ปุ่ม "Need Edit" บน order ที่ตัวเองเป็นเจ้าของจะถูกซ่อน (เพราะไม่จำเป็นแล้ว)
+- เมื่อเจ้าของแก้ order ที่ **เคย approve** มาแล้ว → ระบบ clear ทุก approval column (Pending) เพื่อบังคับให้ re-approve ใหม่
+- ทุก self-edit INSERT row ใหม่ลง `qc_order_edit_log` (`edit_reason='แก้ไขโดยเจ้าของ / Self-edit by owner'`)
+- หน้า `/edit/:orderId` แสดง banner "Self-Edit Mode" + แจ้งถ้า approval จะถูกรีเซ็ต
+
+**Note:** Admin/qc_admin ยังต้องกด Need Edit เพื่อแก้ไข order ของคนอื่น (ไม่เปลี่ยน)
 
 ### US-404: บันทึกการแก้ไข 👷🛡️👑
 **As a** owner หรือ admin, **I want to** บันทึกข้อมูลที่แก้ไข **so that** Order กลับสู่สถานะปกติ
@@ -564,11 +573,11 @@ US-XX: As a [role], I want [action], so that [benefit]
 
 | Tag | Meaning |
 |---|---|
-| ✅ | Implemented & deployed in v2.2.2 |
+| ✅ | Implemented & deployed in v2.2.3 |
 | 🚧 | In progress |
 | 📋 | Backlog (future phases) |
 
-> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.2.2) ยกเว้นที่ระบุไว้
+> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.2.3) ยกเว้นที่ระบุไว้
 
 ---
 
