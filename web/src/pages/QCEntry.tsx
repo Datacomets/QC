@@ -310,10 +310,10 @@ export default function QCEntry() {
               const list = suppliers.filter(s => (s.purchase || '').toLowerCase() === grp.toLowerCase());
               if (list.length === 0) return null;
               return (
-                <optgroup key={grp} label={grp}>
+                <optgroup key={grp} label={`━━━ ${grp} (${list.length}) ━━━`}>
                   {list.map(s => (
                     <option key={s.sup_code} value={s.sup_code}>
-                      {s.sup_sap_code ? `${s.sup_sap_code}/${s.sup_code}` : s.sup_code}
+                      [{grp}] {s.sup_sap_code ? `${s.sup_sap_code}/${s.sup_code}` : s.sup_code}
                     </option>
                   ))}
                 </optgroup>
@@ -326,10 +326,10 @@ export default function QCEntry() {
               });
               if (others.length === 0) return null;
               return (
-                <optgroup label="อื่น ๆ / Other">
+                <optgroup label={`━━━ อื่น ๆ / Other (${others.length}) ━━━`}>
                   {others.map(s => (
                     <option key={s.sup_code} value={s.sup_code}>
-                      {s.sup_sap_code ? `${s.sup_sap_code}/${s.sup_code}` : s.sup_code}
+                      [Other] {s.sup_sap_code ? `${s.sup_sap_code}/${s.sup_code}` : s.sup_code}
                     </option>
                   ))}
                 </optgroup>
