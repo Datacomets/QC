@@ -580,7 +580,7 @@ export default function History() {
               </button>
 
               {expanded === o.id && (
-                <div className="ml-4 mt-2 bg-surface-low rounded-md p-4 space-y-3">
+                <div className="ml-4 mt-2 bg-surface-low border-2 border-primary/30 rounded-md p-4 space-y-3 shadow-sm">
                   {sapBreakdownLabel(o.sap_code) && (
                     <div className="text-[11px] text-on-surface-variant -mt-1">
                       🏷️ {sapBreakdownLabel(o.sap_code)}
