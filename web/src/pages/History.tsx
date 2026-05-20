@@ -104,6 +104,14 @@ export default function History() {
   const [profilesMap, setProfilesMap] = useState<Record<string, string>>({});
   const [profilesList, setProfilesList] = useState<{ id: string; full_name: string; role: string }[]>([]);
 
+  // Suppliers lookup: sup_code → sup_sap_code (used to show "<sap>/<code>" in details)
+  const [supplierSapMap, setSupplierSapMap] = useState<Record<string, string | null>>({});
+  const supDisplay = (sup_code: string | null) => {
+    if (!sup_code) return null;
+    const sap = supplierSapMap[sup_code];
+    return sap ? `${sap}/${sup_code}` : sup_code;
+  };
+
   // Approve modal state
   const [approveOrderRef, setApproveOrderRef] = useState<Order | null>(null);
   const [approverChoice, setApproverChoice] = useState<string>('');  // user id, '__custom__', or ''
@@ -161,6 +169,13 @@ export default function History() {
     }
     setProfilesMap(pmap);
     setProfilesList(plist);
+
+    const { data: sups } = await supabase.from('suppliers').select('sup_code,sup_sap_code');
+    const supMap: Record<string, string | null> = {};
+    for (const s of ((sups as { sup_code: string; sup_sap_code: string | null }[]) || [])) {
+      supMap[s.sup_code] = s.sup_sap_code;
+    }
+    setSupplierSapMap(supMap);
 
     setLoading(false);
   };
@@ -580,7 +595,7 @@ export default function History() {
                     <InfoField label="รายละเอียด / Description" value={o.material_description} />
                     <InfoField label="ฝ่ายขาย / Sales" value={o.sales} />
                     <InfoField label="SCM" value={o.scm} />
-                    <InfoField label="รหัส Sup / Sup Code" value={o.sup_code} />
+                    <InfoField label="รหัส Sup / Sup Code" value={supDisplay(o.sup_code)} />
                     <InfoField label="ผู้จัดจำหน่าย / Supplier" value={o.supplier_name} />
                     <InfoField label="จำนวนรับ / Received Qty" value={o.received_qty != null ? String(o.received_qty) : null} />
                     <InfoField label="จำนวนตรวจสอบ / Sample Size" value={String(o.sample_size)} />
@@ -860,7 +875,7 @@ export default function History() {
                       <div className="col-span-2">
                         <InfoField label="ผู้จัดจำหน่าย / Supplier" value={order.supplier_name} />
                       </div>
-                      <InfoField label="รหัส Sup / Sup Code" value={order.sup_code} />
+                      <InfoField label="รหัส Sup / Sup Code" value={supDisplay(order.sup_code)} />
                       <InfoField label="หมายเลข Lot / Lot No" value={order.lot_no} />
                       <InfoField label="ฝ่ายขาย / Sales" value={order.sales} />
                       <InfoField label="SCM" value={order.scm} />
