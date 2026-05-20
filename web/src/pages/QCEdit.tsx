@@ -153,7 +153,6 @@ export default function QCEdit() {
       lot_no: lotNo.trim() || null,
       received_qty: receivedQty === '' ? null : +receivedQty,
       sample_size: sample, note: note.trim() || null, status,
-      edit_approved: false, edit_reason: null, edit_approved_by: null, edit_approved_at: null
     };
 
     // Edit on previously-approved order → return to Pending (data changed after approval
@@ -199,13 +198,17 @@ export default function QCEdit() {
       if (e2) { setMsg('บันทึกรายการของเสียไม่สำเร็จ: ' + e2.message); setSaving(false); return; }
     }
 
-    // Audit log: insert a fresh row for every edit
-    await supabase.from('qc_order_edit_log').insert({
+    // Audit log: insert a fresh row for every edit (best-effort; ignore if table missing)
+    const { error: logErr } = await supabase.from('qc_order_edit_log').insert({
       order_id: +orderId!,
       edit_reason: 'แก้ไขข้อมูล / Direct edit',
       edited_by: profile?.id,
       edited_at: new Date().toISOString()
     });
+    if (logErr && !/schema cache|does not exist/i.test(logErr.message)) {
+      // unexpected failure — log to console but don't block the save
+      console.warn('Edit log insert failed:', logErr.message);
+    }
 
     setSaving(false);
     nav('/');
