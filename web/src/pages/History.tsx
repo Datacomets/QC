@@ -579,148 +579,172 @@ export default function History() {
                 </div>
               </button>
 
-              {expanded === o.id && (
-                <div className="ml-4 mt-2 bg-surface-low border-2 border-primary/30 rounded-md p-4 space-y-3 shadow-sm">
-                  {sapBreakdownLabel(o.sap_code) && (
-                    <div className="text-[11px] text-on-surface-variant -mt-1">
-                      🏷️ {sapBreakdownLabel(o.sap_code)}
-                    </div>
-                  )}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                    <InfoField label="Project Brief No." value={o.project_brief_no} />
-                    <InfoField label="วันที่รับเข้า / Received Date" value={o.received_date ? fmtDate(o.received_date) : null} />
-                    <InfoField label="วันที่ตรวจ / Inspection Date" value={fmtDate(o.order_date)} />
-                    <InfoField label="รหัส SAP / SAP Code" value={o.sap_code} />
-                    <InfoField label="ประเภท / Type" value={getProductType(o.sap_code)} />
-                    <InfoField label="รายละเอียด / Description" value={o.material_description} />
-                    <InfoField label="ฝ่ายขาย / Sales" value={o.sales} />
-                    <InfoField label="SCM" value={o.scm} />
-                    <InfoField label="รหัส Sup / Sup Code" value={supDisplay(o.sup_code)} />
-                    <InfoField label="ผู้จัดจำหน่าย / Supplier" value={o.supplier_name} />
-                    <InfoField label="จำนวนรับ / Received Qty" value={o.received_qty != null ? String(o.received_qty) : null} />
-                    <InfoField label="จำนวนตรวจสอบ / Sample Size" value={String(o.sample_size)} />
-                    <InfoField label="เอกสารต้นฉบับ / Original Documents" value={o.original_doc_with} />
-                    <InfoField label="ผู้บันทึก / Recorded By" value={profilesMap[o.created_by || ''] || null} />
-                  </div>
-                  {o.note && (
-                    <div className="text-sm">
-                      <span className="text-[11px] uppercase tracking-wide text-on-surface-variant mr-1">หมายเหตุ / Remarks:</span>
-                      {o.note}
-                    </div>
-                  )}
-
-                  {/* Edit reason display */}
-                  {o.edit_approved && o.edit_reason && (
-                    <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-sm">
-                      <span className="text-[11px] uppercase tracking-wide text-amber-700 mr-1">เหตุผลที่อนุมัติแก้ไข / Edit Reason:</span>
-                      <span className="text-amber-900">{o.edit_reason}</span>
-                    </div>
-                  )}
-
-                  {/* Approval info — per status */}
-                  {o.approved && (
-                    <div className="rounded-md bg-primary-container/40 border border-primary/20 px-3 py-2 text-sm">
-                      <div className="text-[11px] uppercase tracking-wide text-on-primary-container mb-1">
-                        การอนุมัติ / Approval Record
-                      </div>
-                      {o.accept_approved && (
-                        <ApprovalLine label="✓ ยืนยันรับ / Confirm Accept"
-                          by={o.accept_approved_by_name || profilesMap[o.accept_approved_by || ''] || '—'}
-                          at={o.accept_approved_at} />
-                      )}
-                      {o.acceptlot_approved && (
-                        <ApprovalLine label="✓ ยืนยันรับ Lot / Confirm Accept Lot"
-                          by={o.acceptlot_approved_by_name || profilesMap[o.acceptlot_approved_by || ''] || '—'}
-                          at={o.acceptlot_approved_at} />
-                      )}
-                      {o.reject_approved && (
-                        <ApprovalLine label="✓ ยืนยันการปฏิเสธ / Confirm Reject"
-                          by={o.reject_approved_by_name || profilesMap[o.reject_approved_by || ''] || '—'}
-                          at={o.reject_approved_at} />
-                      )}
-                      {/* Fallback for legacy data without status-specific columns */}
-                      {!o.accept_approved && !o.acceptlot_approved && !o.reject_approved && (
-                        <ApprovalLine label="✓ อนุมัติแล้ว / Approved"
-                          by={o.approved_by_name || profilesMap[o.approved_by || ''] || '—'}
-                          at={o.approved_at} />
-                      )}
-                    </div>
-                  )}
-
-                  <h4 className="font-display font-semibold text-sm pt-2">รายการของเสีย / Defect List</h4>
-                  {detailLoading ? (
-                    <p className="text-sm text-on-surface-variant">กำลังโหลด…</p>
-                  ) : details.length === 0 ? (
-                    <p className="text-sm text-on-surface-variant">ไม่มีรายการของเสีย</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {details.map(d => (
-                        <div key={d.id} className="bg-surface-lowest rounded-md p-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <div>
-                              <span className="font-mono text-xs text-on-surface-variant mr-2">{d.defect_code}</span>
-                              <span className="text-sm">{d.symptom}</span>
-                            </div>
-                            <div className="flex gap-2 shrink-0">
-                              <span className={`chip text-[10px] ${
-                                d.critical_rank === 'Critical' ? 'bg-error/10 text-error' :
-                                d.critical_rank === 'Major' ? 'bg-amber-100 text-amber-800' :
-                                'bg-surface-highest text-on-surface-variant'
-                              }`}>{d.critical_rank}</span>
-                              <span className="chip chip-active text-[10px]">x{d.quantity}</span>
-                            </div>
-                          </div>
-                          {d.images && d.images.length > 0 && (
-                            <div className="flex gap-2 mt-2">
-                              {d.images.map((url, j) => (
-                                <a key={j} href={url} target="_blank" rel="noopener noreferrer">
-                                  <img src={url} alt="" className="h-14 w-14 rounded object-cover hover:ring-2 ring-primary transition" />
-                                </a>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Action buttons */}
-                  <div className="flex gap-2 pt-3 border-t border-outline-variant/15 flex-wrap">
-                    <button type="button" onClick={e => { e.stopPropagation(); openOrderPdf(o); }}
-                      className="btn-secondary text-sm">
-                      📄 PDF
-                    </button>
-                    {ncrs[o.id] && (
-                      <button type="button" onClick={e => { e.stopPropagation(); openNcrModal(ncrs[o.id]); }}
-                        className="btn-secondary text-sm">
-                        📋 NCR · {ncrs[o.id].ncr_no}
-                      </button>
-                    )}
-                    {/* Approve button — Operator only (Operator chooses the approver) */}
-                    {profile?.role === 'operator' && !o.edit_approved && !o.approved && (
-                      <button type="button" onClick={e => { e.stopPropagation(); openApproveModal(o); }}
-                        className="btn-primary text-sm">
-                        {o.status === 'Accept'     ? '✓ ยืนยันรับ / Confirm Accept' :
-                         o.status === 'Accept Lot' ? '✓ ยืนยันรับ Lot / Confirm Accept Lot' :
-                         o.status === 'Reject'     ? '✓ ยืนยันการปฏิเสธ / Confirm Reject' :
-                                                     '✓ อนุมัติ / Approve'}
-                      </button>
-                    )}
-                    {/* Edit — Owner or admin/qc_admin can edit anytime (no Need Edit unlock workflow) */}
-                    {(o.created_by === profile?.id || isAdminRole) && (
-                      <button type="button" onClick={e => { e.stopPropagation(); nav(`/edit/${o.id}`); }}
-                        className="btn-primary text-sm">
-                        แก้ไขข้อมูล / Edit
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
                   ))}
                 </div>
               </div>
             ))}
+          </div>
+        );
+      })()}
+
+      {/* Order Detail Modal — เปิดเมื่อคลิก card */}
+      {expanded !== null && (() => {
+        const o = orders.find(x => x.id === expanded);
+        if (!o) return null;
+        return (
+          <div className="fixed inset-0 z-40 flex items-start justify-center p-4 overflow-y-auto" onClick={() => setExpanded(null)}>
+            <div className="fixed inset-0 bg-inverse/50 backdrop-blur-sm" />
+            <div className="relative bg-surface-lowest rounded-lg shadow-ambient w-full max-w-4xl my-8"
+                 onClick={e => e.stopPropagation()}>
+              <div className="px-5 py-4 border-b border-outline-variant/15 flex items-center justify-between sticky top-0 bg-surface-lowest rounded-t-lg z-10 flex-wrap gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-display font-bold text-lg">{o.order_no}</h3>
+                  <span className="chip text-[10px]">{fmtDate(o.order_date)}</span>
+                  <span className={`chip text-[10px] ${
+                    o.status === 'Reject' ? 'bg-error-container text-error' :
+                    'bg-primary-container text-on-primary-container'
+                  }`}>{o.status}</span>
+                  {o.approved ? (
+                    <span className="chip text-[10px] bg-primary-container text-on-primary-container">✓ Approved</span>
+                  ) : (
+                    <span className="chip text-[10px] bg-surface-high text-on-surface-variant">⏳ Pending</span>
+                  )}
+                  {ncrs[o.id] && (
+                    <span className={`chip text-[10px] ${NCR_STATUS_STYLE[ncrs[o.id].status] || 'bg-error-container text-error'}`}>
+                      📋 {ncrs[o.id].ncr_no}
+                    </span>
+                  )}
+                </div>
+                <button onClick={() => setExpanded(null)} className="btn-secondary text-sm">ปิด / Close</button>
+              </div>
+
+              <div className="p-5 space-y-3">
+                {sapBreakdownLabel(o.sap_code) && (
+                  <div className="text-[11px] text-on-surface-variant">
+                    🏷️ {sapBreakdownLabel(o.sap_code)}
+                  </div>
+                )}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                  <InfoField label="Project Brief No." value={o.project_brief_no} />
+                  <InfoField label="วันที่รับเข้า / Received Date" value={o.received_date ? fmtDate(o.received_date) : null} />
+                  <InfoField label="วันที่ตรวจ / Inspection Date" value={fmtDate(o.order_date)} />
+                  <InfoField label="รหัส SAP / SAP Code" value={o.sap_code} />
+                  <InfoField label="ประเภท / Type" value={getProductType(o.sap_code)} />
+                  <InfoField label="รายละเอียด / Description" value={o.material_description} />
+                  <InfoField label="ฝ่ายขาย / Sales" value={o.sales} />
+                  <InfoField label="SCM" value={o.scm} />
+                  <InfoField label="รหัส Sup / Sup Code" value={supDisplay(o.sup_code)} />
+                  <InfoField label="ผู้จัดจำหน่าย / Supplier" value={o.supplier_name} />
+                  <InfoField label="จำนวนรับ / Received Qty" value={o.received_qty != null ? String(o.received_qty) : null} />
+                  <InfoField label="จำนวนตรวจสอบ / Sample Size" value={String(o.sample_size)} />
+                  <InfoField label="เอกสารต้นฉบับ / Original Documents" value={o.original_doc_with} />
+                  <InfoField label="ผู้บันทึก / Recorded By" value={profilesMap[o.created_by || ''] || null} />
+                </div>
+                {o.note && (
+                  <div className="text-sm">
+                    <span className="text-[11px] uppercase tracking-wide text-on-surface-variant mr-1">หมายเหตุ / Remarks:</span>
+                    {o.note}
+                  </div>
+                )}
+
+                {o.edit_approved && o.edit_reason && (
+                  <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-sm">
+                    <span className="text-[11px] uppercase tracking-wide text-amber-700 mr-1">เหตุผลที่อนุมัติแก้ไข / Edit Reason:</span>
+                    <span className="text-amber-900">{o.edit_reason}</span>
+                  </div>
+                )}
+
+                {o.approved && (
+                  <div className="rounded-md bg-primary-container/40 border border-primary/20 px-3 py-2 text-sm">
+                    <div className="text-[11px] uppercase tracking-wide text-on-primary-container mb-1">
+                      การอนุมัติ / Approval Record
+                    </div>
+                    {o.accept_approved && (
+                      <ApprovalLine label="✓ ยืนยันรับ / Confirm Accept"
+                        by={o.accept_approved_by_name || profilesMap[o.accept_approved_by || ''] || '—'}
+                        at={o.accept_approved_at} />
+                    )}
+                    {o.acceptlot_approved && (
+                      <ApprovalLine label="✓ ยืนยันรับ Lot / Confirm Accept Lot"
+                        by={o.acceptlot_approved_by_name || profilesMap[o.acceptlot_approved_by || ''] || '—'}
+                        at={o.acceptlot_approved_at} />
+                    )}
+                    {o.reject_approved && (
+                      <ApprovalLine label="✓ ยืนยันการปฏิเสธ / Confirm Reject"
+                        by={o.reject_approved_by_name || profilesMap[o.reject_approved_by || ''] || '—'}
+                        at={o.reject_approved_at} />
+                    )}
+                    {!o.accept_approved && !o.acceptlot_approved && !o.reject_approved && (
+                      <ApprovalLine label="✓ อนุมัติแล้ว / Approved"
+                        by={o.approved_by_name || profilesMap[o.approved_by || ''] || '—'}
+                        at={o.approved_at} />
+                    )}
+                  </div>
+                )}
+
+                <h4 className="font-display font-semibold text-sm pt-2">รายการของเสีย / Defect List</h4>
+                {detailLoading ? (
+                  <p className="text-sm text-on-surface-variant">กำลังโหลด…</p>
+                ) : details.length === 0 ? (
+                  <p className="text-sm text-on-surface-variant">ไม่มีรายการของเสีย</p>
+                ) : (
+                  <div className="space-y-2">
+                    {details.map(d => (
+                      <div key={d.id} className="bg-surface-low rounded-md p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <span className="font-mono text-xs text-on-surface-variant mr-2">{d.defect_code}</span>
+                            <span className="text-sm">{d.symptom}</span>
+                          </div>
+                          <div className="flex gap-2 shrink-0">
+                            <span className={`chip text-[10px] ${
+                              d.critical_rank === 'Critical' ? 'bg-error/10 text-error' :
+                              d.critical_rank === 'Major' ? 'bg-amber-100 text-amber-800' :
+                              'bg-surface-highest text-on-surface-variant'
+                            }`}>{d.critical_rank}</span>
+                            <span className="chip chip-active text-[10px]">x{d.quantity}</span>
+                          </div>
+                        </div>
+                        {d.images && d.images.length > 0 && (
+                          <div className="flex gap-2 mt-2">
+                            {d.images.map((url, j) => (
+                              <a key={j} href={url} target="_blank" rel="noopener noreferrer">
+                                <img src={url} alt="" className="h-14 w-14 rounded object-cover hover:ring-2 ring-primary transition" />
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="px-5 py-4 border-t border-outline-variant/15 flex gap-2 flex-wrap sticky bottom-0 bg-surface-lowest rounded-b-lg">
+                <button type="button" onClick={() => openOrderPdf(o)} className="btn-secondary text-sm">
+                  📄 PDF
+                </button>
+                {ncrs[o.id] && (
+                  <button type="button" onClick={() => openNcrModal(ncrs[o.id])} className="btn-secondary text-sm">
+                    📋 NCR · {ncrs[o.id].ncr_no}
+                  </button>
+                )}
+                {profile?.role === 'operator' && !o.edit_approved && !o.approved && (
+                  <button type="button" onClick={() => openApproveModal(o)} className="btn-primary text-sm">
+                    {o.status === 'Accept'     ? '✓ ยืนยันรับ / Confirm Accept' :
+                     o.status === 'Accept Lot' ? '✓ ยืนยันรับ Lot / Confirm Accept Lot' :
+                     o.status === 'Reject'     ? '✓ ยืนยันการปฏิเสธ / Confirm Reject' :
+                                                 '✓ อนุมัติ / Approve'}
+                  </button>
+                )}
+                {(o.created_by === profile?.id || isAdminRole) && (
+                  <button type="button" onClick={() => nav(`/edit/${o.id}`)} className="btn-primary text-sm">
+                    แก้ไขข้อมูล / Edit
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         );
       })()}
