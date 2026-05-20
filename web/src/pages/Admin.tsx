@@ -108,7 +108,7 @@ function SuppliersPane() {
       purchase: editing.purchase || null
     };
     if (!payload.supplier_name) { setMsg('กรุณากรอกชื่อ Supplier'); return; }
-    if (!payload.sup_code) { setMsg('กรุณากรอก Sup Code หรือ SAP Code อย่างน้อย 1 ฟิลด์'); return; }
+    if (!payload.sup_sap_code) { setMsg('กรุณากรอก SAP Code'); return; }
 
     const { error } = editing.id
       ? await supabase.from('suppliers').update(payload).eq('id', editing.id)
@@ -168,7 +168,7 @@ function SuppliersPane() {
           <form onSubmit={save} className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <Field label="Sup Code" value={editing.sup_code} onChange={v => setEditing({ ...editing, sup_code: v })} />
-              <Field label="SAP Code" value={editing.sup_sap_code} onChange={v => setEditing({ ...editing, sup_sap_code: v })} />
+              <Field label="SAP Code *" value={editing.sup_sap_code} onChange={v => setEditing({ ...editing, sup_sap_code: v })} />
             </div>
             <Field label="Supplier Name *" value={editing.supplier_name} onChange={v => setEditing({ ...editing, supplier_name: v })} />
             <div className="grid grid-cols-3 gap-3">
