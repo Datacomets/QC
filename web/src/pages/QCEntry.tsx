@@ -100,18 +100,6 @@ export default function QCEntry() {
     });
   }, [orderDate]);
 
-  // Resolve Sup SAP Code → supplier (debounced)
-  useEffect(() => {
-    setSupplier(null);
-    const code = supSapCode.trim();
-    if (!code) return;
-    const t = setTimeout(async () => {
-      const { data } = await supabase.from('suppliers')
-        .select('sup_code,supplier_name,sup_sap_code').eq('sup_sap_code', code).maybeSingle();
-      setSupplier((data as Supplier) || null);
-    }, 400);
-    return () => clearTimeout(t);
-  }, [supSapCode]);
 
   // Totals
   const totals = useMemo(() => {
@@ -306,13 +294,7 @@ export default function QCEntry() {
         <Display label="ฝ่ายขาย / Sales" value={salesVal || null} />
         <Display label="SCM" value={scmVal || null} />
 
-        <div>
-          <label className="field-label">รหัส Sup SAP / Vendor Code</label>
-          <input className="field-input" value={supSapCode}
-            onChange={e => setSupSapCode(e.target.value)}
-            placeholder="เช่น 10000138" />
-        </div>
-        <div className="md:col-span-2">
+        <div className="md:col-span-3">
           <label className="field-label">รหัสผู้จัดจำหน่าย / Sup Code</label>
           <select className="field-select"
             value={supplier?.sup_code || ''}
@@ -326,7 +308,7 @@ export default function QCEntry() {
             <option value="">— เลือก / Select —</option>
             {suppliers.map(s => (
               <option key={s.sup_code} value={s.sup_code}>
-                {s.sup_code} · {s.supplier_name}
+                {s.sup_sap_code || '—'} · {s.sup_code} · {s.supplier_name}
               </option>
             ))}
           </select>
