@@ -96,15 +96,19 @@ function SuppliersPane() {
     e.preventDefault();
     if (!editing) return;
     setMsg('');
+    const supCode = (editing.sup_code || '').trim();
+    const supSapCode = (editing.sup_sap_code || '')?.toString().trim();
     const payload = {
-      sup_code: (editing.sup_code || '').trim(),
-      sup_sap_code: (editing.sup_sap_code || '')?.toString().trim() || null,
+      // sup_code is NOT NULL UNIQUE in DB; if user leaves it blank, fall back to sap code
+      sup_code: supCode || supSapCode,
+      sup_sap_code: supSapCode || null,
       supplier_name: (editing.supplier_name || '').trim(),
       category: editing.category || null,
       status: editing.status || 'ACTIVE',
       purchase: editing.purchase || null
     };
-    if (!payload.sup_code || !payload.supplier_name) { setMsg('กรุณากรอก Sup Code และชื่อ Supplier'); return; }
+    if (!payload.supplier_name) { setMsg('กรุณากรอกชื่อ Supplier'); return; }
+    if (!payload.sup_code) { setMsg('กรุณากรอก Sup Code หรือ SAP Code อย่างน้อย 1 ฟิลด์'); return; }
 
     const { error } = editing.id
       ? await supabase.from('suppliers').update(payload).eq('id', editing.id)
@@ -163,7 +167,7 @@ function SuppliersPane() {
         <EditModal title={editing.id ? 'แก้ไข Supplier' : 'เพิ่ม Supplier'} onClose={() => { setEditing(null); setMsg(''); }}>
           <form onSubmit={save} className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Sup Code *" value={editing.sup_code} onChange={v => setEditing({ ...editing, sup_code: v })} />
+              <Field label="Sup Code" value={editing.sup_code} onChange={v => setEditing({ ...editing, sup_code: v })} />
               <Field label="SAP Code" value={editing.sup_sap_code} onChange={v => setEditing({ ...editing, sup_sap_code: v })} />
             </div>
             <Field label="Supplier Name *" value={editing.supplier_name} onChange={v => setEditing({ ...editing, supplier_name: v })} />
