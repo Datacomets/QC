@@ -308,7 +308,7 @@ export default function QCEntry() {
             <option value="">— เลือก / Select —</option>
             {suppliers.map(s => (
               <option key={s.sup_code} value={s.sup_code}>
-                {s.sup_sap_code || '—'} · {s.sup_code} · {s.supplier_name}
+                {s.sup_sap_code ? `${s.sup_sap_code}/${s.sup_code}` : s.sup_code}
               </option>
             ))}
           </select>
