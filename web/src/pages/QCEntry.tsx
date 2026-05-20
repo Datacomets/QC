@@ -45,6 +45,9 @@ export default function QCEntry() {
   // brand_responsibilities cache: normalized brand key → { sales, scm }
   const [brandMap, setBrandMap] = useState<Map<string, { sales: string | null; scm: string | null }>>(new Map());
 
+  // Suppliers list — cached at mount for the Sup Code dropdown
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+
   // Normalize: strip leading *, ", ' / trim / lowercase — to bridge "*BEET" ↔ "BEET"
   const normalizeBrand = (s: string) => s.replace(/^[*"']+/, '').trim().toLowerCase();
 
@@ -61,6 +64,10 @@ export default function QCEntry() {
       }
       setBrandMap(m);
     });
+
+    supabase.from('suppliers').select('sup_code,supplier_name,sup_sap_code')
+      .order('sup_code')
+      .then(({ data }) => setSuppliers((data as Supplier[]) || []));
   }, []);
 
   // Resolve SAP → material → brand → brand_responsibilities (cached) → sales/scm (debounced)
@@ -305,7 +312,25 @@ export default function QCEntry() {
             onChange={e => setSupSapCode(e.target.value)}
             placeholder="เช่น 10000138" />
         </div>
-        <Display label="รหัสผู้จัดจำหน่าย / Sup Code" value={supplier?.sup_code} className="md:col-span-2" />
+        <div className="md:col-span-2">
+          <label className="field-label">รหัสผู้จัดจำหน่าย / Sup Code</label>
+          <select className="field-select"
+            value={supplier?.sup_code || ''}
+            onChange={e => {
+              const code = e.target.value;
+              if (!code) { setSupplier(null); setSupSapCode(''); return; }
+              const s = suppliers.find(x => x.sup_code === code) || null;
+              setSupplier(s);
+              setSupSapCode(s?.sup_sap_code || '');
+            }}>
+            <option value="">— เลือก / Select —</option>
+            {suppliers.map(s => (
+              <option key={s.sup_code} value={s.sup_code}>
+                {s.sup_code} · {s.supplier_name}
+              </option>
+            ))}
+          </select>
+        </div>
 
         <div>
           <label className="field-label">หมายเลข Lot / Lot No.</label>
