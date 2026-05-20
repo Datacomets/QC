@@ -683,41 +683,45 @@ export default function History() {
                   </div>
                 )}
 
-                <h4 className="font-display font-semibold text-sm pt-2">รายการของเสีย / Defect List</h4>
-                {detailLoading ? (
-                  <p className="text-sm text-on-surface-variant">กำลังโหลด…</p>
-                ) : details.length === 0 ? (
-                  <p className="text-sm text-on-surface-variant">ไม่มีรายการของเสีย</p>
-                ) : (
-                  <div className="space-y-2">
-                    {details.map(d => (
-                      <div key={d.id} className="bg-surface-low rounded-md p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <div>
-                            <span className="font-mono text-xs text-on-surface-variant mr-2">{d.defect_code}</span>
-                            <span className="text-sm">{d.symptom}</span>
+                {(o.status === 'Accept Lot' || o.status === 'Reject') && (
+                  <>
+                    <h4 className="font-display font-semibold text-sm pt-2">รายการของเสีย / Defect List</h4>
+                    {detailLoading ? (
+                      <p className="text-sm text-on-surface-variant">กำลังโหลด…</p>
+                    ) : details.length === 0 ? (
+                      <p className="text-sm text-on-surface-variant">ไม่มีรายการของเสีย</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {details.map(d => (
+                          <div key={d.id} className="bg-surface-low rounded-md p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <div>
+                                <span className="font-mono text-xs text-on-surface-variant mr-2">{d.defect_code}</span>
+                                <span className="text-sm">{d.symptom}</span>
+                              </div>
+                              <div className="flex gap-2 shrink-0">
+                                <span className={`chip text-[10px] ${
+                                  d.critical_rank === 'Critical' ? 'bg-error/10 text-error' :
+                                  d.critical_rank === 'Major' ? 'bg-amber-100 text-amber-800' :
+                                  'bg-surface-highest text-on-surface-variant'
+                                }`}>{d.critical_rank}</span>
+                                <span className="chip chip-active text-[10px]">x{d.quantity}</span>
+                              </div>
+                            </div>
+                            {d.images && d.images.length > 0 && (
+                              <div className="flex gap-2 mt-2">
+                                {d.images.map((url, j) => (
+                                  <a key={j} href={url} target="_blank" rel="noopener noreferrer">
+                                    <img src={url} alt="" className="h-14 w-14 rounded object-cover hover:ring-2 ring-primary transition" />
+                                  </a>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                          <div className="flex gap-2 shrink-0">
-                            <span className={`chip text-[10px] ${
-                              d.critical_rank === 'Critical' ? 'bg-error/10 text-error' :
-                              d.critical_rank === 'Major' ? 'bg-amber-100 text-amber-800' :
-                              'bg-surface-highest text-on-surface-variant'
-                            }`}>{d.critical_rank}</span>
-                            <span className="chip chip-active text-[10px]">x{d.quantity}</span>
-                          </div>
-                        </div>
-                        {d.images && d.images.length > 0 && (
-                          <div className="flex gap-2 mt-2">
-                            {d.images.map((url, j) => (
-                              <a key={j} href={url} target="_blank" rel="noopener noreferrer">
-                                <img src={url} alt="" className="h-14 w-14 rounded object-cover hover:ring-2 ring-primary transition" />
-                              </a>
-                            ))}
-                          </div>
-                        )}
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  </>
                 )}
               </div>
 
