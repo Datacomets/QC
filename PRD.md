@@ -1,8 +1,8 @@
 # Product Requirements Document (PRD)
 # QC Inspection — ระบบสุ่มตรวจคุณภาพ
 
-**Version:** 2.3.0
-**Last Updated:** 18 พฤษภาคม 2026
+**Version:** 2.3.1
+**Last Updated:** 20 พฤษภาคม 2026
 **Owner:** Comets Intertrade Co., Ltd.
 **Status:** Active (Production)
 **Live URL:** https://web-mocha-three-44.vercel.app
@@ -108,8 +108,7 @@
 | Brand | Display | materials.brand | display |
 | **Sales / ฝ่ายขาย** (v2.2) | **Display (read-only)** | brand_responsibilities (fallback materials) | display |
 | **SCM** (v2.2) | **Display (read-only)** | brand_responsibilities (fallback materials) | display |
-| **Vendor Code / Sup SAP** (v2.2) | Text | — | optional |
-| Sup Code | Display | suppliers (lookup by Vendor Code) | display |
+| **รหัสผู้จัดจำหน่าย / Sup Code** (v2.3.1) | Select dropdown | suppliers table | optional |
 | Lot No. | Text | — | optional |
 | จำนวนรับ / Received Qty | Number | — | optional |
 | จำนวนตรวจสอบ / Sample Size | Number | — | ✅ |
@@ -129,6 +128,12 @@
 > - **Order No preview** — แสดง "QC2605xxx (ประมาณ)" ในส่วน header ของฟอร์ม + ในปอปอัพ review โดยเรียก RPC `peek_next_order_no(p_date)` ตามวันที่ตรวจ
 >   - Preview ไม่ reserve เลข — ถ้ามีคน insert ก่อน DB trigger จะ +1 ให้อัตโนมัติเมื่อ save จริง
 >   - DB trigger `gen_order_no()` ใส่ `pg_advisory_xact_lock(hashtext('qc_order_no_seq'))` เพื่อ serialize concurrent INSERT → กันเลขซ้ำในระดับ DB
+>
+> **ใหม่ใน v2.3.1:**
+> - **Sup Code = dropdown แบ่งกลุ่ม Import / Local** — รวม Vendor Code (Sup SAP) input เดิมเข้ากับ Sup Code display เป็น single dropdown ที่ดึงรายการจาก `suppliers` (~90 ราย)
+>   - Option label: `<sup_sap_code>/<sup_code>` เช่น `10000138/12Y` — ค้นหาได้โดยพิมพ์เลข SAP หรือรหัสภายใน
+>   - แบ่ง `<optgroup>` ตาม `suppliers.purchase`: **Import** / **Local** / อื่น ๆ
+>   - เลือกแล้ว — ระบบบันทึก `sup_code` + `supplier_name` ลง qc_orders (sup_sap_code ดึงจาก suppliers table ตอน display)
 
 **Defect List (multi-select):**
 - ค้นหารหัสของเสียและอาการ → เลือกได้หลายอันพร้อมกัน → "เพิ่มในรายการ" → รวมเป็น 1 แถว
@@ -207,12 +212,14 @@
 - % ของเสีย + Critical/Major/Minor counts
   - **(v2.2)** สำหรับ status = **Accept Lot** แสดง `—` แทน `%` เพราะอัตราของเสียไม่ใช่เกณฑ์ตัดสินใจของ workflow นี้ (PDF + Dashboard ยังคำนวณ % ปกติ)
 
-**Expanded View:**
-- Header info ครบ + SAP breakdown line (ทุกตำแหน่ง)
-- Edit reason (ถ้า admin อนุมัติแก้ไข)
-- **กล่อง Approval Record** — แสดงผู้อนุมัติ + วันที่ตามสถานะที่ approve (Accept / Accept Lot / Reject)
-- รายการของเสีย + รูปภาพ
-- ปุ่ม Action
+**Detail Modal (v2.3.1 — เปลี่ยนจาก inline expand → popup):**
+- คลิกที่การ์ด order → เปิด **modal popup** ตรงกลางหน้าจอ (max-w-4xl)
+- Header sticky: Order No + วันที่ตรวจ + chip status / approval / NCR + ปุ่มปิด
+- Body: SAP breakdown line, info grid (Project Brief / 2 วันที่ / SAP / Type / Description / Sales / SCM / **Sup Code แสดงเป็น `<sap>/<code>`** / Supplier / Qty / Sample / Original Docs / Recorded By)
+- กล่อง Approval Record — ผู้อนุมัติ + วันที่ตามสถานะที่ approve
+- **รายการของเสีย / Defect List** — *(v2.3.1)* แสดงเฉพาะเมื่อ status = `Accept Lot` หรือ `Reject` (Accept ไม่แสดงเพราะไม่มี defect)
+- Footer sticky: ปุ่ม Action ทั้งหมด (PDF / NCR / ยืนยัน / Edit)
+- ปิดด้วย: ปุ่ม Close, คลิก backdrop, หรือ ESC
 
 **Action Buttons (per role + per state):**
 - **📄 PDF** (ทุก role) → เปิด modal preview ใบ QC Inspection Report → Download PDF
@@ -413,8 +420,12 @@
 - `critical_rank`, `quantity`
 - `images text[]`
 
-**`qc_order_edit_log`**
-- `id`, `order_id`, `edit_reason*`, `approved_by`, `approved_at`, `edited_by`, `edited_at`
+**`qc_order_edit_log`** (v2.3.1 — restored via patch-18)
+- `id`, `order_id` FK qc_orders ON DELETE CASCADE
+- `edit_reason text not null` (default: `'แก้ไขข้อมูล / Direct edit'`)
+- `edited_by` UUID FK profiles, `edited_at` timestamptz
+- RLS: authenticated read + insert
+- INSERT 1 row per save in `/edit/:orderId`
 
 **`ncr_reports`**
 - `id`, `ncr_no unique` (auto: `NCR<YY><MM><seq4>`)
@@ -527,7 +538,24 @@
 
 ---
 
-## 9. Done in v2.3.0 (เพิ่มจาก v2.2.3)
+## 9. Done in v2.3.1 (เพิ่มจาก v2.3.0)
+
+- ✅ **Sup Code dropdown แบ่งกลุ่ม Import / Local** — แทน 2 ฟิลด์เดิม (Vendor Code input + Sup Code display) เป็น single `<select>` ที่ดึงจาก `suppliers`
+  - Label option: `<sup_sap_code>/<sup_code>` เช่น `10000138/12Y`
+  - แบ่ง `<optgroup>` ตาม `suppliers.purchase`: Import / Local / อื่น ๆ
+- ✅ **History expanded → Popup Modal** — คลิกการ์ด order → เปิด modal ตรงกลาง (max-w-4xl) แทน inline expand ใต้ card
+  - Header sticky พร้อม chip status / approval / NCR + ปุ่มปิด
+  - Footer sticky พร้อมปุ่ม Action ทั้งหมด
+  - ปิดด้วย Close button / backdrop click / ESC
+- ✅ **Defect List section ใน Modal ซ่อนเมื่อ status = Accept** — แสดงเฉพาะ Accept Lot และ Reject
+- ✅ **Sup Code display ในหน้า History modal เป็น `<sap>/<code>`** — ดึง `sup_sap_code` จาก suppliers table มา join ตอน display
+- ✅ **Audit log table `qc_order_edit_log` กู้คืน** — patch-04 ไม่เคยถูก apply ใน project นี้; patch-18 สร้างตารางและ RLS ให้ถูก
+  - Edit log INSERT ทุกครั้งที่ save แก้ไข (auto จาก QCEdit)
+  - คอลัมน์: `id`, `order_id`, `edit_reason`, `edited_by`, `edited_at`
+- ✅ **QCEdit หยุดเขียน edit_approved* columns** — คอลัมน์ไม่มีอยู่จริงใน DB → ลบออกจาก UPDATE payload (fix bug "Could not find edit_approved column")
+- ✅ DB patches: 18 (`qc_order_edit_log` audit table)
+
+## Done in v2.3.0 (เพิ่มจาก v2.2.3)
 
 - ✅ **ลบ Need Edit workflow** — เจ้าของ order, admin, qc_admin แก้ Order ได้โดยตรงตลอดเวลา ไม่ต้องผ่านขั้น "Need Edit" ของ admin อีกแล้ว
 - ✅ History: ลบปุ่ม "✏️ ต้องแก้ไข / Need Edit" + modal กรอกเหตุผล + handler `requestEdit()` ออกหมด
@@ -632,6 +660,15 @@
 ---
 
 ## 13. Release Notes
+
+### v2.3.1 — 20 พฤษภาคม 2026
+- **Sup Code dropdown** with Import/Local groups (replaces Vendor Code input + Sup Code display)
+- **History detail popup modal** (replaces inline expand)
+- **Defect List section in modal** hidden for Accept status
+- **Sup Code display in history shows `<sap>/<code>`**
+- **patch-18:** restore `qc_order_edit_log` audit table (patch-04 was missing)
+- **Fix:** QCEdit no longer writes non-existent edit_approved* columns
+- DB patches: 18
 
 ### v2.3.0 — 18 พฤษภาคม 2026
 - **ลบ Need Edit workflow ออกหมด** — ปุ่ม "✏️ ต้องแก้ไข" + modal กรอกเหตุผลในหน้า History

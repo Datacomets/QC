@@ -1,7 +1,7 @@
 # User Stories — QC Inspection Web App
 
-**Version:** 2.3.0
-**Last Updated:** 18 พฤษภาคม 2026
+**Version:** 2.3.1
+**Last Updated:** 20 พฤษภาคม 2026
 **Companion to:** [PRD.md](PRD.md)
 
 ---
@@ -175,14 +175,17 @@ US-XX: As a [role], I want [action], so that [benefit]
 - บันทึกใน `qc_orders.project_brief_no text`
 - แสดงในหน้า History expanded view + PDF reports
 
-### US-211: Supplier ผ่าน Vendor Code (v2.2) 👷
-**As an** operator, **I want to** กรอก Vendor Code (Sup SAP) แล้วให้ Sup Code ปรากฏอัตโนมัติ **so that** อ้างอิงผู้จัดจำหน่ายได้โดยไม่ต้องพิมพ์ชื่อ
+### US-211: Supplier dropdown (v2.3.1) 👷
+**As an** operator, **I want to** เลือก supplier จาก dropdown ที่แบ่งกลุ่ม Import / Local **so that** ค้นและเลือกได้รวดเร็วโดยไม่ต้องพิมพ์รหัสเอง
 
-**Acceptance Criteria:**
-- ฟิลด์ "Vendor Code / Sup SAP" input ปกติ (กรอกได้)
-- ฟิลด์ "Sup Code" display-only ดึงจากตาราง `suppliers` (lookup ด้วย sup_sap_code)
-- **Supplier name input ถูกซ่อนจาก QC Entry** — ระบบบันทึก supplier_name ลง DB ผ่าน lookup เอง
-- ฟิลด์ Supplier ยังคงเก็บใน `qc_orders.supplier_name` เพื่อให้ History/PDF/Dashboard ใช้ได้ปกติ
+**Acceptance Criteria (v2.3.1 — แทน Vendor Code input เดิม):**
+- ฟิลด์เดียว: "รหัสผู้จัดจำหน่าย / Sup Code" เป็น `<select>` ดึงจาก `suppliers` ทั้งหมด (~90 ราย)
+- Label option: `<sup_sap_code>/<sup_code>` เช่น `10000138/12Y`
+- **แบ่ง `<optgroup>` 2 หมวด** ตาม `suppliers.purchase`: **Import** + **Local**
+- supplier ที่ purchase ไม่ใช่ Import/Local → ไปกลุ่ม "อื่น ๆ / Other"
+- เลือกแล้ว → ระบบบันทึก `sup_code` + `supplier_name` ลง qc_orders
+- **Supplier name input + Vendor Code input ถูกลบ** จาก QC Entry (ทดแทนด้วย dropdown นี้)
+- หน้า History modal: ฟิลด์ Sup Code แสดง `<sap>/<code>` เหมือนใน dropdown
 
 ### US-202: SAP Code Breakdown แสดงเป็นช่องแยก (v2.1) 👷
 **As an** operator, **I want to** เห็นการแยกประเภทของ SAP Code (Item Type / Source / Category / Group / Sub-Group / Running / Revision) เป็นช่องแยกกัน **so that** เข้าใจสินค้าทันทีโดยไม่ต้องจำ mapping
@@ -256,6 +259,24 @@ US-XX: As a [role], I want [action], so that [benefit]
 - chip รูปแบบ "📋 NCR26050001 · Open" — สีตามสถานะ NCR (Open=แดง, In Progress=เหลือง, Closed=เขียว)
 - เฉพาะ Reject orders ที่มี NCR record
 
+### US-307: Order Detail แสดงเป็น Popup Modal (v2.3.1) 👷👀🛡️👑
+**As a** ทุก role, **I want to** ดู order detail ใน modal popup แทน inline expand **so that** รายการอื่น ๆ ไม่ถูกดันลงเวลากดดูออเดอร์ใดออเดอร์หนึ่ง
+
+**Acceptance Criteria:**
+- คลิกการ์ด order → เปิด modal ตรงกลางหน้าจอ (max-w-4xl, scrollable)
+- Header sticky: Order No + วันที่ตรวจ + chip status / approval / NCR + ปุ่ม **ปิด / Close**
+- Body: SAP breakdown + info grid (Project Brief / 2 วันที่ / SAP / Type / Description / Sales / SCM / Sup Code / Supplier / Qty / Sample / Original Docs / Recorded By) + Approval Record + รายการของเสีย (conditional ดู US-308)
+- Footer sticky: ปุ่ม PDF / NCR / Confirm / Edit ทุกที่ใช้ได้
+- ปิดได้ 3 วิธี: ปุ่ม Close, คลิก backdrop, กด ESC
+
+### US-308: Defect List section conditional display (v2.3.1) 👷👀🛡️👑
+**As a** ทุก role, **I want to** ไม่ต้องเห็นหัวข้อ "รายการของเสีย / Defect List" สำหรับ order ที่ status = Accept **so that** หน้าจอไม่รก ตามความเป็นจริงที่ Accept ไม่มีของเสีย
+
+**Acceptance Criteria:**
+- ใน Order Detail Modal: section "รายการของเสีย / Defect List" แสดง **เฉพาะเมื่อ** `status === 'Accept Lot'` หรือ `status === 'Reject'`
+- Status = `Accept` → ไม่มีหัวข้อนี้ในปอปอัพ
+- ฟอร์ม QC Entry / QCEdit ยังคงให้ใส่ defect ได้ทุก status (เผื่อ user เปลี่ยน status ทีหลัง)
+
 ### US-306: ซ่อน Defect % เมื่อ Accept Lot (v2.2) 👷👀🛡️👑
 **As a** ทุก role, **I want to** เห็น `—` แทน `%` ของเสียในการ์ดหน้า History สำหรับ order ที่ status = Accept Lot **so that** ไม่เข้าใจผิดว่า Accept Lot ใช้เกณฑ์ % ตัดสินใจ
 
@@ -290,6 +311,23 @@ US-XX: As a [role], I want [action], so that [benefit]
 
 ### US-402: ~~Admin/QC Admin ขอให้แก้ไข Order~~ — DEPRECATED v2.3.0
 **Removed in v2.3.0** — ปุ่ม "Need Edit" + workflow ปลดล็อกถูกยกเลิก เพราะเจ้าของ order, admin, qc_admin สามารถกดปุ่ม "แก้ไขข้อมูล / Edit" ได้โดยตรงตลอดเวลาแล้ว (ดู US-403)
+
+### US-406: Audit log table กู้คืน (v2.3.1) 🛡️👑
+**As a** admin/qc_admin, **I want to** มีตาราง `qc_order_edit_log` ใน Supabase บันทึก audit ทุกครั้งที่มีการแก้ Order **so that** ตรวจสอบประวัติย้อนหลังได้
+
+**Acceptance Criteria:**
+- ตาราง `qc_order_edit_log` (สร้างผ่าน patch-18) มีคอลัมน์: `id`, `order_id` (FK qc_orders), `edit_reason text not null`, `edited_by` (FK profiles), `edited_at timestamptz`
+- RLS: authenticated read + insert (เขียนผ่าน frontend ได้ ลบไม่ได้)
+- ทุก save ใน `/edit/:orderId` → frontend INSERT row ใหม่อัตโนมัติ (edit_reason default = "แก้ไขข้อมูล / Direct edit")
+- Supabase Dashboard → Table Editor → `qc_order_edit_log` ดู audit ทั้งหมดได้
+- **เหตุที่ต้องกู้คืน:** patch-04 (สร้าง edit_log ครั้งแรก) ไม่เคยถูก apply กับ project นี้ → เคยทำ frontend INSERT แต่ fail เงียบ → patch-18 fix
+
+### US-407: QCEdit ไม่เขียน edit_approved* columns (v2.3.1 — bug fix) 👷🛡️👑
+**As an** operator/admin, **I want to** บันทึกการแก้ไข Order ได้โดยไม่ error **so that** ใช้ระบบได้
+
+**Acceptance Criteria:**
+- frontend ไม่ส่ง `edit_approved`, `edit_reason`, `edit_approved_by`, `edit_approved_at` ใน UPDATE payload (คอลัมน์ไม่มีจริงใน DB)
+- save Order ใน `/edit/:orderId` สำเร็จทุกครั้ง — ไม่มี error "Could not find the 'edit_approved' column"
 
 ### US-403: แก้ไข Order หลังบันทึก 👷🛡️👑 (v2.3.0 — ลบ Need Edit workflow)
 **As an** operator/qc_admin/admin, **I want to** แก้ไข Order ได้โดยตรงผ่านปุ่ม "Edit" **so that** แก้ข้อมูลที่ผิดได้ทันทีไม่ต้องผ่านขั้น unlock
@@ -574,11 +612,11 @@ US-XX: As a [role], I want [action], so that [benefit]
 
 | Tag | Meaning |
 |---|---|
-| ✅ | Implemented & deployed in v2.3.0 |
+| ✅ | Implemented & deployed in v2.3.1 |
 | 🚧 | In progress |
 | 📋 | Backlog (future phases) |
 
-> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.3.0) ยกเว้นที่ระบุไว้
+> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.3.1) ยกเว้นที่ระบุไว้
 
 ---
 
