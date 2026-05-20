@@ -6,7 +6,7 @@ import SuccessModal, { OrderDraft } from '../components/SuccessModal';
 
 type Rank = 'Critical' | 'Major' | 'Minor';
 interface Material { sap_code: string; description: string | null; product_category: string | null; brand: string | null; sales: string | null; scm: string | null; }
-interface Supplier { sup_code: string; supplier_name: string; sup_sap_code: string | null; }
+interface Supplier { sup_code: string; supplier_name: string; sup_sap_code: string | null; purchase: string | null; }
 interface Defect { defect_code: string; symptom: string; reason: string | null; }
 interface DefectItem { code: string; symptom: string; }
 interface ImageFile { file: File; preview: string; }
@@ -65,7 +65,7 @@ export default function QCEntry() {
       setBrandMap(m);
     });
 
-    supabase.from('suppliers').select('sup_code,supplier_name,sup_sap_code')
+    supabase.from('suppliers').select('sup_code,supplier_name,sup_sap_code,purchase')
       .order('sup_code')
       .then(({ data }) => setSuppliers((data as Supplier[]) || []));
   }, []);
@@ -306,11 +306,35 @@ export default function QCEntry() {
               setSupSapCode(s?.sup_sap_code || '');
             }}>
             <option value="">— เลือก / Select —</option>
-            {suppliers.map(s => (
-              <option key={s.sup_code} value={s.sup_code}>
-                {s.sup_sap_code ? `${s.sup_sap_code}/${s.sup_code}` : s.sup_code}
-              </option>
-            ))}
+            {(['Import', 'Local'] as const).map(grp => {
+              const list = suppliers.filter(s => (s.purchase || '').toLowerCase() === grp.toLowerCase());
+              if (list.length === 0) return null;
+              return (
+                <optgroup key={grp} label={grp}>
+                  {list.map(s => (
+                    <option key={s.sup_code} value={s.sup_code}>
+                      {s.sup_sap_code ? `${s.sup_sap_code}/${s.sup_code}` : s.sup_code}
+                    </option>
+                  ))}
+                </optgroup>
+              );
+            })}
+            {(() => {
+              const others = suppliers.filter(s => {
+                const p = (s.purchase || '').toLowerCase();
+                return p !== 'import' && p !== 'local';
+              });
+              if (others.length === 0) return null;
+              return (
+                <optgroup label="อื่น ๆ / Other">
+                  {others.map(s => (
+                    <option key={s.sup_code} value={s.sup_code}>
+                      {s.sup_sap_code ? `${s.sup_sap_code}/${s.sup_code}` : s.sup_code}
+                    </option>
+                  ))}
+                </optgroup>
+              );
+            })()}
           </select>
         </div>
 
