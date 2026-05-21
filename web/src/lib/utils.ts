@@ -9,6 +9,19 @@ export function fmtDate(dateStr: string | null | undefined): string {
   return `${dd}-${mm}-${yyyy}`;
 }
 
+/** Format date+time to DD/MM/YYYY HH:mm */
+export function fmtDateTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return `${dd}/${mm}/${yyyy} ${hh}:${mi}`;
+}
+
 /**
  * SAP Code structure (Comets Intertrade)
  *

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { fmtDate, getProductType, sapBreakdownLabel } from '../lib/utils';
+import { fmtDate, fmtDateTime, getProductType, sapBreakdownLabel } from '../lib/utils';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import OrderReport from '../components/OrderReport';
@@ -102,7 +102,11 @@ export default function History() {
 
   // Profiles for showing approver names + populating approval dropdown
   const [profilesMap, setProfilesMap] = useState<Record<string, string>>({});
+  const [rolesMap, setRolesMap] = useState<Record<string, string>>({});
   const [profilesList, setProfilesList] = useState<{ id: string; full_name: string; role: string }[]>([]);
+
+  // Edit log entries for the currently-open order (loaded on modal open)
+  const [editLogs, setEditLogs] = useState<Array<{ id: number; edit_reason: string; edited_by: string | null; edited_at: string }>>([]);
 
   // Suppliers lookup: sup_code → sup_sap_code (used to show "<sap>/<code>" in details)
   const [supplierSapMap, setSupplierSapMap] = useState<Record<string, string | null>>({});
@@ -164,10 +168,15 @@ export default function History() {
 
     const plist = ((profilesRes.data as any[]) || []).filter(p => p.full_name);
     const pmap: Record<string, string> = {};
+    const rmap: Record<string, string> = {};
     for (const p of plist) {
-      if (p.id) pmap[p.id] = p.full_name || '';
+      if (p.id) {
+        pmap[p.id] = p.full_name || '';
+        rmap[p.id] = p.role || '';
+      }
     }
     setProfilesMap(pmap);
+    setRolesMap(rmap);
     setProfilesList(plist);
 
     const { data: sups } = await supabase.from('suppliers').select('sup_code,sup_sap_code');
@@ -265,10 +274,17 @@ export default function History() {
     if (expanded === orderId) { setExpanded(null); return; }
     setExpanded(orderId);
     setDetailLoading(true);
-    const { data } = await supabase.from('qc_order_details')
-      .select('id,defect_code,symptom,critical_rank,quantity,images')
-      .eq('order_id', orderId).order('id');
-    setDetails((data as Detail[]) || []);
+    setEditLogs([]);
+    const [detailsRes, logsRes] = await Promise.all([
+      supabase.from('qc_order_details')
+        .select('id,defect_code,symptom,critical_rank,quantity,images')
+        .eq('order_id', orderId).order('id'),
+      supabase.from('qc_order_edit_log')
+        .select('id,edit_reason,edited_by,edited_at')
+        .eq('order_id', orderId).order('edited_at', { ascending: false }),
+    ]);
+    setDetails((detailsRes.data as Detail[]) || []);
+    setEditLogs((logsRes.data as any[]) || []);
     setDetailLoading(false);
   };
 
@@ -723,6 +739,86 @@ export default function History() {
                     )}
                   </>
                 )}
+
+                {/* Activity History — admin role only */}
+                {profile?.role === 'admin' && (() => {
+                  type Event = { time: string; whoId: string | null; whoName: string; role: string; action: string; note?: string };
+                  const events: Event[] = [];
+
+                  // CREATE
+                  if (o.created_at) {
+                    events.push({
+                      time: o.created_at,
+                      whoId: o.created_by,
+                      whoName: profilesMap[o.created_by || ''] || '—',
+                      role: rolesMap[o.created_by || ''] || '',
+                      action: 'สร้างเอกสาร / Created',
+                    });
+                  }
+
+                  // EDIT events from log
+                  for (const log of editLogs) {
+                    events.push({
+                      time: log.edited_at,
+                      whoId: log.edited_by,
+                      whoName: profilesMap[log.edited_by || ''] || '—',
+                      role: rolesMap[log.edited_by || ''] || '',
+                      action: 'แก้ไขข้อมูล / Edited',
+                      note: log.edit_reason,
+                    });
+                  }
+
+                  // APPROVE events (status-specific)
+                  const approvals: Array<{ ok: boolean; at: string | null; by: string | null; byName: string | null; label: string }> = [
+                    { ok: o.accept_approved,    at: o.accept_approved_at,    by: o.accept_approved_by,    byName: o.accept_approved_by_name,    label: 'ยืนยันรับ / Confirm Accept' },
+                    { ok: o.acceptlot_approved, at: o.acceptlot_approved_at, by: o.acceptlot_approved_by, byName: o.acceptlot_approved_by_name, label: 'ยืนยันรับ Lot / Confirm Accept Lot' },
+                    { ok: o.reject_approved,    at: o.reject_approved_at,    by: o.reject_approved_by,    byName: o.reject_approved_by_name,    label: 'ยืนยันการปฏิเสธ / Confirm Reject' },
+                  ];
+                  for (const a of approvals) {
+                    if (!a.ok || !a.at) continue;
+                    const whoName = a.byName || profilesMap[a.by || ''] || '—';
+                    events.push({
+                      time: a.at,
+                      whoId: a.by,
+                      whoName,
+                      role: rolesMap[a.by || ''] || '',
+                      action: a.label,
+                    });
+                  }
+
+                  // Sort newest first
+                  events.sort((a, b) => (b.time || '').localeCompare(a.time || ''));
+
+                  return (
+                    <div className="pt-3 border-t border-outline-variant/15">
+                      <h4 className="font-display font-semibold text-sm mb-2">
+                        ประวัติการดำเนินการ ({events.length})
+                      </h4>
+                      {events.length === 0 ? (
+                        <p className="text-xs text-on-surface-variant">ไม่มีข้อมูล</p>
+                      ) : (
+                        <div className="space-y-1.5 text-sm">
+                          {events.map((e, i) => (
+                            <div key={i} className="flex flex-wrap gap-x-2 items-baseline">
+                              <span className="text-xs font-mono text-on-surface-variant shrink-0">
+                                {fmtDateTime(e.time)}
+                              </span>
+                              <span className="font-medium">{e.whoName}</span>
+                              {e.role && (
+                                <span className="text-xs text-on-surface-variant">({e.role})</span>
+                              )}
+                              <span className="text-on-surface-variant">→</span>
+                              <span>{e.action}</span>
+                              {e.note && (
+                                <span className="text-xs text-on-surface-variant italic">"{e.note}"</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="px-5 py-4 border-t border-outline-variant/15 flex gap-2 flex-wrap sticky bottom-0 bg-surface-lowest rounded-b-lg">
