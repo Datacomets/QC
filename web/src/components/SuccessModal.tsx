@@ -1,6 +1,9 @@
-import { ChangeEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 import { supabase } from '../lib/supabase';
 import { getProductType } from '../lib/utils';
+import NcrReport from './NcrReport';
 
 type Rank = 'Critical' | 'Major' | 'Minor';
 
@@ -72,6 +75,13 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [savedInfo, setSavedInfo] = useState<{ orderNo: string; ncrNo: string | null } | null>(null);
+
+  // Email/PDF state — populated after a Reject save to trigger offscreen NCR PDF render + notify
+  const [notifyData, setNotifyData] = useState<{
+    orderRow: any; detailRows: any[]; ncrRow: any; createdByName: string | null;
+  } | null>(null);
+  const [notifyStatus, setNotifyStatus] = useState<'idle' | 'preparing' | 'sending' | 'sent' | 'failed'>('idle');
+  const ncrPdfRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     supabase.from('profiles').select('id, full_name, role')
@@ -260,20 +270,24 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
       }
     }
 
-    // Fire email notification for Reject orders (fire-and-forget; ignore failures)
+    // Reject → prepare NCR PDF + email notification (handled by useEffect after savedInfo)
     if (draft.status === 'Reject') {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (token) {
-        fetch('/api/notify-reject', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({ order_id: order.id })
-        }).catch(e => console.warn('Notify failed:', e?.message));
-      }
+      setNotifyStatus('preparing');
+      // Load full order/detail/NCR rows for the offscreen NcrReport render
+      const [orderFull, detailsFull, ncrFull, creatorRow] = await Promise.all([
+        supabase.from('qc_orders').select('*').eq('id', order.id).single(),
+        supabase.from('qc_order_details').select('*').eq('order_id', order.id).order('id'),
+        ncrNo
+          ? supabase.from('ncr_reports').select('*').eq('order_id', order.id).maybeSingle()
+          : Promise.resolve({ data: null }),
+        supabase.from('profiles').select('full_name').eq('id', draft.created_by).maybeSingle()
+      ]);
+      setNotifyData({
+        orderRow: orderFull.data,
+        detailRows: (detailsFull.data as any[]) || [],
+        ncrRow: ncrFull.data,
+        createdByName: creatorRow.data?.full_name || null
+      });
     }
 
     setSaving(false);
@@ -281,14 +295,95 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
     onSaved(order.order_no, ncrNo);
   };
 
+  // After notifyData is set + offscreen NcrReport is rendered, capture to PDF and POST notify
+  useEffect(() => {
+    if (!notifyData || !ncrPdfRef.current) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        // Wait for all <img> inside the offscreen render to load
+        const imgs = ncrPdfRef.current!.querySelectorAll('img');
+        await Promise.all(Array.from(imgs).map(img =>
+          img.complete ? Promise.resolve() : new Promise(resolve => {
+            img.onload = resolve; img.onerror = resolve;
+            // Safety timeout — don't hang if image fails
+            setTimeout(resolve, 5000);
+          })
+        ));
+        if (cancelled) return;
+
+        // Render the hidden NcrReport to canvas → JPEG → multi-page A4 PDF
+        const canvas = await html2canvas(ncrPdfRef.current!, {
+          scale: 2, backgroundColor: '#fff', useCORS: true, logging: false
+        });
+        const imgData = canvas.toDataURL('image/jpeg', 0.9);
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pageW = pdf.internal.pageSize.getWidth();
+        const pageH = pdf.internal.pageSize.getHeight();
+        const imgH = (canvas.height * pageW) / canvas.width;
+        let heightLeft = imgH;
+        let position = 0;
+        pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
+        heightLeft -= pageH;
+        while (heightLeft > 0) {
+          position = -(imgH - heightLeft);
+          pdf.addPage();
+          pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
+          heightLeft -= pageH;
+        }
+        const pdfBase64 = pdf.output('datauristring');
+
+        if (cancelled) return;
+        setNotifyStatus('sending');
+
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) { setNotifyStatus('failed'); return; }
+
+        const r = await fetch('/api/notify-reject', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({
+            order_id: notifyData.orderRow.id,
+            pdf_base64: pdfBase64,
+            pdf_filename: `${notifyData.ncrRow?.ncr_no || notifyData.orderRow.order_no}.pdf`
+          })
+        });
+        if (cancelled) return;
+        setNotifyStatus(r.ok ? 'sent' : 'failed');
+      } catch (e) {
+        console.warn('NCR PDF / notify failed:', e);
+        if (!cancelled) setNotifyStatus('failed');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [notifyData]);
+
   // ----- Render: Success view (after save) -----
   if (savedInfo) {
-    return <SuccessView
-      orderNo={savedInfo.orderNo}
-      ncrNo={savedInfo.ncrNo}
-      status={draft.status}
-      onClose={onClose}
-    />;
+    return (
+      <>
+        <SuccessView
+          orderNo={savedInfo.orderNo}
+          ncrNo={savedInfo.ncrNo}
+          status={draft.status}
+          notifyStatus={draft.status === 'Reject' ? notifyStatus : 'idle'}
+          onClose={onClose}
+        />
+        {/* Offscreen NCR PDF render (only when notify data is ready) */}
+        {notifyData && notifyData.ncrRow && notifyData.orderRow && (
+          <div style={{ position: 'fixed', left: '-99999px', top: 0, width: '794px', pointerEvents: 'none' }}>
+            <NcrReport
+              ref={ncrPdfRef}
+              ncr={notifyData.ncrRow}
+              order={notifyData.orderRow}
+              details={notifyData.detailRows}
+              createdByName={notifyData.createdByName}
+            />
+          </div>
+        )}
+      </>
+    );
   }
 
   // ----- Render: Review/edit view (before save) -----
@@ -491,8 +586,10 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
   );
 }
 
-function SuccessView({ orderNo, ncrNo, status, onClose }: {
-  orderNo: string; ncrNo: string | null; status: string; onClose: () => void;
+function SuccessView({ orderNo, ncrNo, status, notifyStatus, onClose }: {
+  orderNo: string; ncrNo: string | null; status: string;
+  notifyStatus: 'idle' | 'preparing' | 'sending' | 'sent' | 'failed';
+  onClose: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -526,6 +623,15 @@ function SuccessView({ orderNo, ncrNo, status, onClose }: {
                   <div className="text-sm text-error mt-0.5">เลขที่ NCR: <b className="font-mono">{ncrNo}</b></div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {status === 'Reject' && notifyStatus !== 'idle' && (
+            <div className="rounded-md px-3 py-2 text-sm flex items-center gap-2 border border-outline-variant/20 bg-surface-low">
+              {notifyStatus === 'preparing' && <><span className="animate-spin">⏳</span> <span>กำลังเตรียม PDF NCR…</span></>}
+              {notifyStatus === 'sending'   && <><span className="animate-spin">📧</span> <span>กำลังส่งอีเมลแจ้งเตือน…</span></>}
+              {notifyStatus === 'sent'      && <><span>✅</span> <span className="text-primary">ส่งอีเมลแจ้งเตือน + NCR PDF สำเร็จ</span></>}
+              {notifyStatus === 'failed'    && <><span>⚠️</span> <span className="text-error">ส่งอีเมลไม่สำเร็จ (Order บันทึกแล้ว — ลองส่งใหม่ผ่าน Admin Panel)</span></>}
             </div>
           )}
         </div>

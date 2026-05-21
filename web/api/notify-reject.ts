@@ -174,9 +174,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { data: userData, error: userErr } = await userClient.auth.getUser();
   if (userErr || !userData?.user) return res.status(401).json({ error: 'Invalid session' });
 
-  const body = (req.body || {}) as { order_id?: number };
+  const body = (req.body || {}) as {
+    order_id?: number;
+    pdf_base64?: string;        // PDF data URI or raw base64 (frontend-generated NCR PDF)
+    pdf_filename?: string;
+  };
   const orderId = body.order_id;
   if (!orderId) return res.status(400).json({ error: 'Missing order_id' });
+
+  // Strip data URI prefix if present (browser PDFs come as 'data:application/pdf;base64,...')
+  const rawPdfBase64 = body.pdf_base64?.includes(',')
+    ? body.pdf_base64.split(',', 2)[1]
+    : body.pdf_base64;
 
   // Service-role for DB reads (avoids RLS issues on cross-table joins)
   const admin = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY, {
@@ -235,15 +244,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     auth: { user: SMTP_USER, pass: SMTP_PASS }
   });
 
+  const attachments = rawPdfBase64
+    ? [{
+        filename: body.pdf_filename || `${ncr?.ncr_no || order.order_no}.pdf`,
+        content: Buffer.from(rawPdfBase64, 'base64'),
+        contentType: 'application/pdf'
+      }]
+    : undefined;
+
   try {
     const info = await transporter.sendMail({
       from: `"${SMTP_FROM_NAME}" <${SMTP_USER}>`,
       to: toList.join(', '),
       subject: mail.subject,
       html: mail.html,
-      text: mail.text
+      text: mail.text,
+      attachments
     });
-    return res.status(200).json({ ok: true, message_id: info.messageId, recipients: toList.length });
+    return res.status(200).json({
+      ok: true,
+      message_id: info.messageId,
+      recipients: toList.length,
+      attached_pdf: !!attachments
+    });
   } catch (e: any) {
     console.error('SMTP send failed:', e?.message);
     return res.status(500).json({ error: 'Email send failed', detail: e?.message });
