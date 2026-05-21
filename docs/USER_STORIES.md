@@ -1,7 +1,7 @@
 # User Stories — QC Inspection Web App
 
-**Version:** 2.3.1
-**Last Updated:** 20 พฤษภาคม 2026
+**Version:** 2.3.2
+**Last Updated:** 21 พฤษภาคม 2026
 **Companion to:** [PRD.md](PRD.md)
 
 ---
@@ -259,6 +259,21 @@ US-XX: As a [role], I want [action], so that [benefit]
 - chip รูปแบบ "📋 NCR26050001 · Open" — สีตามสถานะ NCR (Open=แดง, In Progress=เหลือง, Closed=เขียว)
 - เฉพาะ Reject orders ที่มี NCR record
 
+### US-309: Activity Timeline ใน Order Detail (v2.3.2) 👑
+**As an** admin, **I want to** เห็นประวัติการดำเนินการของแต่ละ Order ทั้งหมดในที่เดียว **so that** ตรวจสอบ audit trail ได้เร็วโดยไม่ต้องไปไล่ดูตารางทีละตาราง
+
+**Acceptance Criteria:**
+- Section "ประวัติการดำเนินการ (N)" ที่ด้านล่างของ Order Detail Modal
+- **เห็นเฉพาะ `profile.role === 'admin'`** (qc_admin / operator / viewer ไม่เห็น)
+- Event ที่รวบรวม:
+  - **สร้างเอกสาร / Created** — จาก `qc_orders.created_at` + `created_by`
+  - **แก้ไขข้อมูล / Edited** — จาก rows ใน `qc_order_edit_log` พร้อม `edit_reason` เป็น note
+  - **ยืนยันรับ / Confirm Accept** — จาก `accept_approved_at` + `accept_approved_by_name`
+  - **ยืนยันรับ Lot** — จาก `acceptlot_approved_at`
+  - **ยืนยันการปฏิเสธ** — จาก `reject_approved_at`
+- รูปแบบแต่ละ row: `DD/MM/YYYY HH:mm · ชื่อผู้ใช้ (role) → action  "note"`
+- เรียงจากใหม่สุดบนสุด
+
 ### US-307: Order Detail แสดงเป็น Popup Modal (v2.3.1) 👷👀🛡️👑
 **As a** ทุก role, **I want to** ดู order detail ใน modal popup แทน inline expand **so that** รายการอื่น ๆ ไม่ถูกดันลงเวลากดดูออเดอร์ใดออเดอร์หนึ่ง
 
@@ -492,8 +507,15 @@ US-XX: As a [role], I want [action], so that [benefit]
 
 ## Epic 9 — Master Data Management
 
-### US-901: จัดการ Suppliers 🛡️👑
-**As a** admin/qc_admin, **I want to** เพิ่ม/แก้ไข/ลบ Supplier
+### US-901: จัดการ Suppliers 🛡️👑 (v2.3.2 — required fields ปรับใหม่)
+**As a** admin/qc_admin, **I want to** เพิ่ม/แก้ไข/ลบ Supplier โดยมีเงื่อนไข required ที่สมเหตุผล
+
+**Acceptance Criteria (v2.3.2):**
+- ฟิลด์ที่บังคับ: **SAP Code** + **Supplier Name**
+- ฟิลด์ที่ไม่บังคับ: Sup Code, Category, Status (default ACTIVE), Purchase (default Import)
+- ถ้า user เว้น Sup Code → ระบบใช้ **SAP Code** เป็นค่า sup_code อัตโนมัติ (เพื่อ satisfy DB NOT NULL UNIQUE constraint)
+- Validation: ถ้าเว้น Supplier Name → "กรุณากรอกชื่อ Supplier"; ถ้าเว้น SAP Code → "กรุณากรอก SAP Code"
+- ก่อน v2.3.2: Sup Code เป็น required, SAP Code เป็น optional (สลับกัน)
 
 ### US-902: จัดการ Defect Codes 🛡️👑
 **As a** admin/qc_admin, **I want to** เพิ่ม/แก้ไข/ลบ รหัสของเสีย พร้อม Type / Reason
@@ -612,11 +634,11 @@ US-XX: As a [role], I want [action], so that [benefit]
 
 | Tag | Meaning |
 |---|---|
-| ✅ | Implemented & deployed in v2.3.1 |
+| ✅ | Implemented & deployed in v2.3.2 |
 | 🚧 | In progress |
 | 📋 | Backlog (future phases) |
 
-> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.3.1) ยกเว้นที่ระบุไว้
+> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.3.2) ยกเว้นที่ระบุไว้
 
 ---
 

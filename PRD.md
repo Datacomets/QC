@@ -1,8 +1,8 @@
 # Product Requirements Document (PRD)
 # QC Inspection — ระบบสุ่มตรวจคุณภาพ
 
-**Version:** 2.3.1
-**Last Updated:** 20 พฤษภาคม 2026
+**Version:** 2.3.2
+**Last Updated:** 21 พฤษภาคม 2026
 **Owner:** Comets Intertrade Co., Ltd.
 **Status:** Active (Production)
 **Live URL:** https://web-mocha-three-44.vercel.app
@@ -218,6 +218,10 @@
 - Body: SAP breakdown line, info grid (Project Brief / 2 วันที่ / SAP / Type / Description / Sales / SCM / **Sup Code แสดงเป็น `<sap>/<code>`** / Supplier / Qty / Sample / Original Docs / Recorded By)
 - กล่อง Approval Record — ผู้อนุมัติ + วันที่ตามสถานะที่ approve
 - **รายการของเสีย / Defect List** — *(v2.3.1)* แสดงเฉพาะเมื่อ status = `Accept Lot` หรือ `Reject` (Accept ไม่แสดงเพราะไม่มี defect)
+- **ประวัติการดำเนินการ / Activity Timeline** — *(v2.3.2)* **admin role only** — รวบรวม event ทั้งหมดของ order
+  - Source ข้อมูล: `qc_orders.created_at/by` (สร้างเอกสาร), `qc_order_edit_log` (แก้ไขข้อมูล), `*_approved_at/by/by_name` (ยืนยันรับ/Accept Lot/ปฏิเสธ)
+  - แต่ละ row: `DD/MM/YYYY HH:mm · ชื่อผู้ใช้ (role) → action  "note"`
+  - เรียงใหม่สุดบนสุด
 - Footer sticky: ปุ่ม Action ทั้งหมด (PDF / NCR / ยืนยัน / Edit)
 - ปิดด้วย: ปุ่ม Close, คลิก backdrop, หรือ ESC
 
@@ -321,7 +325,8 @@
 ### 4.9 Admin Panel (`/admin`)
 
 **Tab: Suppliers** (CRUD โดย admin/qc_admin)
-- Fields: Sup Code*, SAP Code, Supplier Name*, Category, Status (ACTIVE/INACTIVE), Purchase (Import/Local)
+- Fields: Sup Code, **SAP Code\***, **Supplier Name\***, Category, Status (ACTIVE/INACTIVE), Purchase (Import/Local)
+- **(v2.3.2)** SAP Code กลายเป็น **required**, Sup Code กลายเป็น **optional** (ถ้าเว้นว่าง ระบบใช้ SAP Code เป็น sup_code เพื่อ satisfy DB NOT NULL UNIQUE constraint)
 
 **Tab: รหัสของเสีย / Defect Codes** (CRUD)
 - Fields: Type → Reason → Running No. (Code) → Symptom (อาการ)
@@ -538,7 +543,18 @@
 
 ---
 
-## 9. Done in v2.3.1 (เพิ่มจาก v2.3.0)
+## 9. Done in v2.3.2 (เพิ่มจาก v2.3.1)
+
+- ✅ **Activity Timeline ใน Order Detail Modal (admin only)** — section ใหม่ "ประวัติการดำเนินการ" รวมเหตุการณ์: สร้างเอกสาร / ยืนยันรับ-Lot-ปฏิเสธ / แก้ไขข้อมูล จาก `qc_orders` + `qc_order_edit_log`
+- ✅ **Admin Supplier form — เปลี่ยน required fields**
+  - SAP Code: **required** (เดิม optional)
+  - Sup Code: **optional** (เดิม required — fallback ใช้ SAP Code ถ้าเว้นว่าง)
+  - Category: ยังคง optional
+  - Validation message ปรับให้ตรงกับ rule ใหม่
+- ✅ **Sup Code dropdown decoration** — ในหน้า QC Entry: optgroup label ใส่กรอบ `━━━ Import (85) ━━━` + แต่ละ option prefix `[Import]` / `[Local]` เพื่อให้เห็นการแบ่งกลุ่มชัดทุก browser (เดิม native optgroup label เรียบไป)
+- ✅ Helper ใหม่: `fmtDateTime()` ใน `web/src/lib/utils.ts` — รูปแบบ `DD/MM/YYYY HH:mm` สำหรับ timeline
+
+## Done in v2.3.1 (เพิ่มจาก v2.3.0)
 
 - ✅ **Sup Code dropdown แบ่งกลุ่ม Import / Local** — แทน 2 ฟิลด์เดิม (Vendor Code input + Sup Code display) เป็น single `<select>` ที่ดึงจาก `suppliers`
   - Label option: `<sup_sap_code>/<sup_code>` เช่น `10000138/12Y`
@@ -660,6 +676,12 @@
 ---
 
 ## 13. Release Notes
+
+### v2.3.2 — 21 พฤษภาคม 2026
+- **Activity Timeline** ใน Order Detail Modal (admin only) — ประวัติการดำเนินการรวมเหตุการณ์
+- **Admin Supplier form:** SAP Code = required, Sup Code = optional (fallback)
+- **Sup Code dropdown labels** ใส่ prefix `[Import]/[Local]` + decorate optgroup
+- Helper `fmtDateTime()` ใน utils.ts
 
 ### v2.3.1 — 20 พฤษภาคม 2026
 - **Sup Code dropdown** with Import/Local groups (replaces Vendor Code input + Sup Code display)
