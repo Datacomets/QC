@@ -48,3 +48,8 @@ create trigger trg_notify_recipients_updated_at
 
 comment on table public.notification_recipients is
   'Recipient list for Reject order email notifications. Admin-managed.';
+
+-- Seed the initial recipient (admin can add more via Admin Panel later)
+insert into public.notification_recipients (email, name, role_label, enabled)
+values ('sls03@cometsintertrade.com', 'Admin System', 'Admin', true)
+on conflict (email) do nothing;
