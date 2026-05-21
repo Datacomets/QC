@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 
-type Tab = 'suppliers' | 'defects' | 'brand_resp' | 'users';
+type Tab = 'suppliers' | 'defects' | 'brand_resp' | 'notify' | 'users';
 
 // Official standard list from SD-QC-1909-004-00 Rev02 (18-4-25)
 const OFFICIAL_TYPES = [
@@ -30,7 +30,7 @@ export default function Admin() {
 
   // Guard: if qc_admin happens to land on brand_resp (e.g. via stale state), redirect to suppliers
   useEffect(() => {
-    if (tab === 'brand_resp' && !isAdminSystem) setTab('suppliers');
+    if ((tab === 'brand_resp' || tab === 'notify') && !isAdminSystem) setTab('suppliers');
   }, [tab, isAdminSystem]);
 
   return (
@@ -43,11 +43,13 @@ export default function Admin() {
         <TabBtn id="suppliers" tab={tab} setTab={setTab}>ผู้จัดจำหน่าย / Suppliers</TabBtn>
         <TabBtn id="defects" tab={tab} setTab={setTab}>รหัสของเสีย / Defect Codes</TabBtn>
         {isAdminSystem && <TabBtn id="brand_resp" tab={tab} setTab={setTab}>Brand → Sales/SCM</TabBtn>}
+        {isAdminSystem && <TabBtn id="notify" tab={tab} setTab={setTab}>📧 Reject Notify</TabBtn>}
         <TabBtn id="users" tab={tab} setTab={setTab}>ผู้ใช้ / Users</TabBtn>
       </div>
       {tab === 'suppliers' && <SuppliersPane />}
       {tab === 'defects' && <DefectsPane />}
       {tab === 'brand_resp' && isAdminSystem && <BrandResponsibilitiesPane />}
+      {tab === 'notify' && isAdminSystem && <NotifyRecipientsPane />}
       {tab === 'users' && <UsersPane />}
     </div>
   );
@@ -752,6 +754,170 @@ function BrandResponsibilitiesPane() {
               </button>
             </div>
           </div>
+        </EditModal>
+      )}
+    </section>
+  );
+}
+
+/* =========================================================================
+ * NOTIFY RECIPIENTS — รายชื่ออีเมลรับแจ้งเตือน Reject (admin only)
+ * ======================================================================= */
+interface RecipientRow {
+  id: number;
+  email: string;
+  name: string | null;
+  role_label: string | null;
+  enabled: boolean;
+}
+
+function NotifyRecipientsPane() {
+  const [rows, setRows] = useState<RecipientRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<Partial<RecipientRow> | null>(null);
+  const [msg, setMsg] = useState('');
+  const [testSending, setTestSending] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase.from('notification_recipients')
+      .select('*').order('email');
+    setRows((data as RecipientRow[]) || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!editing) return;
+    setMsg('');
+    const email = (editing.email || '').trim().toLowerCase();
+    if (!email || !email.includes('@')) { setMsg('กรุณากรอกอีเมลที่ถูกต้อง'); return; }
+    const payload = {
+      email,
+      name: (editing.name || '').trim() || null,
+      role_label: (editing.role_label || '').trim() || null,
+      enabled: editing.enabled ?? true
+    };
+    const { error } = editing.id
+      ? await supabase.from('notification_recipients').update(payload).eq('id', editing.id)
+      : await supabase.from('notification_recipients').insert(payload);
+    if (error) { setMsg('บันทึกไม่สำเร็จ: ' + error.message); return; }
+    setEditing(null); await load();
+  };
+
+  const toggle = async (r: RecipientRow) => {
+    await supabase.from('notification_recipients').update({ enabled: !r.enabled }).eq('id', r.id);
+    await load();
+  };
+
+  const del = async (id: number) => {
+    if (!confirm('ลบรายชื่อนี้?')) return;
+    await supabase.from('notification_recipients').delete().eq('id', id);
+    await load();
+  };
+
+  const sendTest = async () => {
+    setMsg(''); setTestSending(true);
+    try {
+      // Find a recent Reject order to use as test payload
+      const { data: order } = await supabase.from('qc_orders')
+        .select('id').eq('status', 'Reject').order('created_at', { ascending: false }).limit(1).single();
+      if (!order) { setMsg('ไม่พบ Reject order ในระบบสำหรับทดสอบ'); setTestSending(false); return; }
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const r = await fetch('/api/notify-reject', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token || ''}` },
+        body: JSON.stringify({ order_id: order.id })
+      });
+      const j = await r.json();
+      if (r.ok && j.ok) setMsg(`✅ ส่งทดสอบสำเร็จ (${j.recipients} ผู้รับ)`);
+      else setMsg(`❌ ${j.error || j.skipped || 'ส่งไม่สำเร็จ'}`);
+    } catch (e: any) {
+      setMsg('❌ ' + (e?.message || 'error'));
+    }
+    setTestSending(false);
+  };
+
+  return (
+    <section className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="font-display font-bold text-lg">📧 Reject Notification Recipients</h2>
+          <p className="text-xs text-on-surface-variant mt-0.5">
+            อีเมลในรายการ enabled จะได้รับแจ้งเตือนทุกครั้งที่บันทึก Order = Reject
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={sendTest} disabled={testSending} className="btn-secondary text-sm">
+            {testSending ? 'กำลังส่ง…' : '✉️ ส่งทดสอบ / Test send'}
+          </button>
+          <button onClick={() => setEditing({ enabled: true })} className="btn-primary text-sm">+ เพิ่มอีเมล</button>
+        </div>
+      </div>
+      {msg && <div className={`rounded-md px-3 py-2 text-sm ${msg.startsWith('✅') ? 'bg-primary-container text-on-primary-container' : 'bg-error-container text-error'}`}>{msg}</div>}
+
+      {loading ? (
+        <p className="text-sm text-on-surface-variant">กำลังโหลด…</p>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-on-surface-variant italic">ยังไม่มีรายชื่อ — กด "+ เพิ่มอีเมล" เพื่อเริ่มต้น</p>
+      ) : (
+        <table className="w-full text-sm">
+          <thead className="text-xs uppercase tracking-wide text-on-surface-variant">
+            <tr className="border-b border-outline-variant/20">
+              <th className="text-left py-2 px-2">Email</th>
+              <th className="text-left py-2 px-2">Name</th>
+              <th className="text-left py-2 px-2">Role / Label</th>
+              <th className="text-center py-2 px-2">Enabled</th>
+              <th className="text-right py-2 px-2">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.id} className="border-b border-outline-variant/10 hover:bg-surface-low">
+                <td className="py-2 px-2 font-mono text-xs">{r.email}</td>
+                <td className="py-2 px-2">{r.name || '—'}</td>
+                <td className="py-2 px-2 text-on-surface-variant">{r.role_label || '—'}</td>
+                <td className="py-2 px-2 text-center">
+                  <button onClick={() => toggle(r)}
+                    className={`chip text-[10px] ${r.enabled ? 'bg-primary-container text-on-primary-container' : 'bg-surface-high text-on-surface-variant'}`}>
+                    {r.enabled ? '✓ ON' : '○ OFF'}
+                  </button>
+                </td>
+                <td className="py-2 px-2 text-right space-x-2">
+                  <button onClick={() => setEditing(r)} className="text-xs text-primary hover:underline">แก้ไข</button>
+                  <button onClick={() => del(r.id)} className="text-xs text-error hover:underline">ลบ</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {editing && (
+        <EditModal title={editing.id ? 'แก้ไขผู้รับ' : 'เพิ่มผู้รับ'} onClose={() => { setEditing(null); setMsg(''); }}>
+          <form onSubmit={save} className="space-y-4">
+            <Field label="Email *" value={editing.email}
+              onChange={v => setEditing({ ...editing, email: v })}
+              placeholder="user@example.com" />
+            <Field label="Name" value={editing.name}
+              onChange={v => setEditing({ ...editing, name: v })}
+              placeholder="ชื่อผู้รับ (ไม่บังคับ)" />
+            <Field label="Role / Label" value={editing.role_label}
+              onChange={v => setEditing({ ...editing, role_label: v })}
+              placeholder="เช่น PCM Team, QC Manager, Sales" />
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={editing.enabled ?? true}
+                onChange={e => setEditing({ ...editing, enabled: e.target.checked })} />
+              เปิดใช้งาน / Enabled
+            </label>
+            {msg && <p className="text-sm text-error">{msg}</p>}
+            <div className="flex gap-2 justify-end pt-2">
+              <button type="button" onClick={() => { setEditing(null); setMsg(''); }} className="btn-secondary">ยกเลิก</button>
+              <button className="btn-primary">บันทึก</button>
+            </div>
+          </form>
         </EditModal>
       )}
     </section>

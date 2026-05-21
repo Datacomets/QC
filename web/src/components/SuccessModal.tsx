@@ -260,6 +260,22 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
       }
     }
 
+    // Fire email notification for Reject orders (fire-and-forget; ignore failures)
+    if (draft.status === 'Reject') {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (token) {
+        fetch('/api/notify-reject', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ order_id: order.id })
+        }).catch(e => console.warn('Notify failed:', e?.message));
+      }
+    }
+
     setSaving(false);
     setSavedInfo({ orderNo: order.order_no, ncrNo });
     onSaved(order.order_no, ncrNo);
