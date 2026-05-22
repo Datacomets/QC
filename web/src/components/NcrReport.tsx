@@ -212,7 +212,7 @@ const NcrReport = forwardRef<HTMLDivElement, Props>(function NcrReport({ ncr, or
 // ---------- Sub-components ----------
 function Section({ number, title, titleTh, children }: { number: string; title: string; titleTh: string; children: any }) {
   return (
-    <div style={{ marginBottom: '16px' }}>
+    <div style={{ marginBottom: '16px', pageBreakInside: 'avoid', breakInside: 'avoid' }}>
       <div style={{ background: '#1e3a5f', color: '#fff', padding: '4px 10px', fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', borderRadius: '3px 3px 0 0' }}>
         {number}. {title} <span style={{ fontWeight: 400, opacity: 0.85 }}>· {titleTh}</span>
       </div>

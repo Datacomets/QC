@@ -1,8 +1,7 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 import { supabase } from '../lib/supabase';
 import { getProductType } from '../lib/utils';
+import { generatePdfDataUri } from '../lib/pdf';
 import NcrReport from './NcrReport';
 
 type Rank = 'Critical' | 'Major' | 'Minor';
@@ -301,37 +300,8 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
     let cancelled = false;
     (async () => {
       try {
-        // Wait for all <img> inside the offscreen render to load
-        const imgs = ncrPdfRef.current!.querySelectorAll('img');
-        await Promise.all(Array.from(imgs).map(img =>
-          img.complete ? Promise.resolve() : new Promise(resolve => {
-            img.onload = resolve; img.onerror = resolve;
-            // Safety timeout — don't hang if image fails
-            setTimeout(resolve, 5000);
-          })
-        ));
-        if (cancelled) return;
-
-        // Render hidden NcrReport → canvas → multi-page A4 PDF
-        const canvas = await html2canvas(ncrPdfRef.current!, {
-          scale: 2, backgroundColor: '#fff', useCORS: true, logging: false
-        });
-        const imgData = canvas.toDataURL('image/jpeg', 0.9);
-        const pdf = new jsPDF('p', 'mm', 'a4');
-        const pageW = pdf.internal.pageSize.getWidth();
-        const pageH = pdf.internal.pageSize.getHeight();
-        const imgH = (canvas.height * pageW) / canvas.width;
-        let heightLeft = imgH;
-        let position = 0;
-        pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
-        heightLeft -= pageH;
-        while (heightLeft > 0) {
-          position = -(imgH - heightLeft);
-          pdf.addPage();
-          pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
-          heightLeft -= pageH;
-        }
-        const pdfBase64 = pdf.output('datauristring');
+        const filename = `${notifyData.ncrRow?.ncr_no || notifyData.orderRow.order_no}.pdf`;
+        const pdfBase64 = await generatePdfDataUri(ncrPdfRef.current!, filename);
 
         if (cancelled) return;
         setNotifyStatus('sending');
@@ -346,7 +316,7 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
           body: JSON.stringify({
             order_id: notifyData.orderRow.id,
             pdf_base64: pdfBase64,
-            pdf_filename: `${notifyData.ncrRow?.ncr_no || notifyData.orderRow.order_no}.pdf`
+            pdf_filename: filename
           })
         });
         if (cancelled) return;

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { fmtDate, fmtDateTime, getProductType, sapBreakdownLabel } from '../lib/utils';
+import { downloadPdf } from '../lib/pdf';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import OrderReport from '../components/OrderReport';
@@ -244,27 +245,7 @@ export default function History() {
     if (!ncrPdfRef.current || !ncrPdf) return;
     setNcrPdfDownloading(true);
     try {
-      const imgs = ncrPdfRef.current.querySelectorAll('img');
-      await Promise.all(Array.from(imgs).map(img =>
-        img.complete ? Promise.resolve() : new Promise(res => { img.onload = res; img.onerror = res; })
-      ));
-      const canvas = await html2canvas(ncrPdfRef.current, { scale: 2, backgroundColor: '#fff', useCORS: true, logging: false });
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pageW = pdf.internal.pageSize.getWidth();
-      const pageH = pdf.internal.pageSize.getHeight();
-      const imgH = (canvas.height * pageW) / canvas.width;
-      let heightLeft = imgH;
-      let position = 0;
-      pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
-      heightLeft -= pageH;
-      while (heightLeft > 0) {
-        position = -(imgH - heightLeft);
-        pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
-        heightLeft -= pageH;
-      }
-      pdf.save(`${ncrPdf.ncr_no}.pdf`);
+      await downloadPdf(ncrPdfRef.current, `${ncrPdf.ncr_no}.pdf`);
     } finally {
       setNcrPdfDownloading(false);
     }

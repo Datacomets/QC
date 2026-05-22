@@ -1,9 +1,8 @@
 import { ChangeEvent, DragEvent, FormEvent, useEffect, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import { generatePdfDataUri } from '../lib/pdf';
 import NcrReport from '../components/NcrReport';
 
 type Tab = 'suppliers' | 'defects' | 'brand_resp' | 'notify' | 'users';
@@ -887,42 +886,13 @@ function NotifyRecipientsPane({ canEdit }: { canEdit: boolean }) {
     let cancelled = false;
     (async () => {
       try {
-        // Wait for offscreen images to load
-        const imgs = ncrPdfRef.current!.querySelectorAll('img');
-        await Promise.all(Array.from(imgs).map(img =>
-          img.complete ? Promise.resolve() : new Promise(resolve => {
-            img.onload = resolve; img.onerror = resolve;
-            setTimeout(resolve, 5000);
-          })
-        ));
-        if (cancelled) return;
-
-        // Capture NcrReport to multi-page A4 PDF
-        const canvas = await html2canvas(ncrPdfRef.current!, {
-          scale: 2, backgroundColor: '#fff', useCORS: true, logging: false
-        });
-        const imgData = canvas.toDataURL('image/jpeg', 0.9);
-        const pdf = new jsPDF('p', 'mm', 'a4');
-        const pageW = pdf.internal.pageSize.getWidth();
-        const pageH = pdf.internal.pageSize.getHeight();
-        const imgH = (canvas.height * pageW) / canvas.width;
-        let heightLeft = imgH;
-        let position = 0;
-        pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
-        heightLeft -= pageH;
-        while (heightLeft > 0) {
-          position = -(imgH - heightLeft);
-          pdf.addPage();
-          pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
-          heightLeft -= pageH;
-        }
-        const pdfDataUri = pdf.output('datauristring');
+        const pdfFilename = `${pdfSrc.ncr?.ncr_no || pdfSrc.order.order_no}.pdf`;
+        const pdfDataUri = await generatePdfDataUri(ncrPdfRef.current!, pdfFilename);
 
         if (cancelled) return;
 
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token || '';
-        const pdfFilename = `${pdfSrc.ncr?.ncr_no || pdfSrc.order.order_no}.pdf`;
 
         if (pdfSrc.mode === 'preview') {
           // Fetch rendered email HTML (no send) — pair it with the PDF data URI in modal
