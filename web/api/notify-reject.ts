@@ -178,6 +178,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     order_id?: number;
     pdf_base64?: string;        // PDF data URI or raw base64 (frontend-generated NCR PDF)
     pdf_filename?: string;
+    preview?: boolean;          // if true, return rendered email HTML without sending
   };
   const orderId = body.order_id;
   if (!orderId) return res.status(400).json({ error: 'Missing order_id' });
@@ -226,12 +227,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     .eq('enabled', true);
 
   const toList = (recipients || []).map(r => r.name ? `${r.name} <${r.email}>` : r.email);
-  if (toList.length === 0) {
-    return res.status(200).json({ skipped: 'no_recipients' });
-  }
 
   // Build mail
   const mail = buildEmail(order as OrderRow, (details as DetailRow[]) || [], ncr?.ncr_no || null);
+
+  // Preview mode — return rendered email content WITHOUT sending
+  if (body.preview) {
+    return res.status(200).json({
+      ok: true,
+      preview: true,
+      subject: mail.subject,
+      html: mail.html,
+      text: mail.text,
+      recipients: toList,
+      recipient_count: toList.length,
+      order_no: order.order_no,
+      ncr_no: ncr?.ncr_no || null
+    });
+  }
+
+  if (toList.length === 0) {
+    return res.status(200).json({ skipped: 'no_recipients' });
+  }
 
   // Send via SMTP
   if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {

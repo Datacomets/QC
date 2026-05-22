@@ -26,12 +26,15 @@ const OFFICIAL_REASONS = [
 export default function Admin() {
   const { profile } = useAuth();
   const isAdminSystem = profile?.role === 'admin';
+  const isQcAdmin = profile?.role === 'qc_admin';
+  const canSeeNotify = isAdminSystem || isQcAdmin;
   const [tab, setTab] = useState<Tab>('suppliers');
 
-  // Guard: if qc_admin happens to land on brand_resp (e.g. via stale state), redirect to suppliers
+  // Guard: if qc_admin lands on brand_resp (admin-only), redirect to suppliers
   useEffect(() => {
-    if ((tab === 'brand_resp' || tab === 'notify') && !isAdminSystem) setTab('suppliers');
-  }, [tab, isAdminSystem]);
+    if (tab === 'brand_resp' && !isAdminSystem) setTab('suppliers');
+    if (tab === 'notify' && !canSeeNotify) setTab('suppliers');
+  }, [tab, isAdminSystem, canSeeNotify]);
 
   return (
     <div className="space-y-6">
@@ -43,13 +46,13 @@ export default function Admin() {
         <TabBtn id="suppliers" tab={tab} setTab={setTab}>ผู้จัดจำหน่าย / Suppliers</TabBtn>
         <TabBtn id="defects" tab={tab} setTab={setTab}>รหัสของเสีย / Defect Codes</TabBtn>
         {isAdminSystem && <TabBtn id="brand_resp" tab={tab} setTab={setTab}>Brand → Sales/SCM</TabBtn>}
-        {isAdminSystem && <TabBtn id="notify" tab={tab} setTab={setTab}>📧 Reject Notify</TabBtn>}
+        {canSeeNotify && <TabBtn id="notify" tab={tab} setTab={setTab}>📧 Reject Notify</TabBtn>}
         <TabBtn id="users" tab={tab} setTab={setTab}>ผู้ใช้ / Users</TabBtn>
       </div>
       {tab === 'suppliers' && <SuppliersPane />}
       {tab === 'defects' && <DefectsPane />}
       {tab === 'brand_resp' && isAdminSystem && <BrandResponsibilitiesPane />}
-      {tab === 'notify' && isAdminSystem && <NotifyRecipientsPane />}
+      {tab === 'notify' && canSeeNotify && <NotifyRecipientsPane canEdit={isAdminSystem} />}
       {tab === 'users' && <UsersPane />}
     </div>
   );
@@ -771,12 +774,14 @@ interface RecipientRow {
   enabled: boolean;
 }
 
-function NotifyRecipientsPane() {
+function NotifyRecipientsPane({ canEdit }: { canEdit: boolean }) {
   const [rows, setRows] = useState<RecipientRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Partial<RecipientRow> | null>(null);
   const [msg, setMsg] = useState('');
   const [testSending, setTestSending] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [preview, setPreview] = useState<{ subject: string; html: string; recipients: string[]; order_no: string; ncr_no: string | null } | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -817,14 +822,17 @@ function NotifyRecipientsPane() {
     await load();
   };
 
+  const findLatestReject = async () => {
+    const { data: order } = await supabase.from('qc_orders')
+      .select('id').eq('status', 'Reject').order('created_at', { ascending: false }).limit(1).maybeSingle();
+    return order;
+  };
+
   const sendTest = async () => {
     setMsg(''); setTestSending(true);
     try {
-      // Find a recent Reject order to use as test payload
-      const { data: order } = await supabase.from('qc_orders')
-        .select('id').eq('status', 'Reject').order('created_at', { ascending: false }).limit(1).single();
+      const order = await findLatestReject();
       if (!order) { setMsg('ไม่พบ Reject order ในระบบสำหรับทดสอบ'); setTestSending(false); return; }
-
       const { data: { session } } = await supabase.auth.getSession();
       const r = await fetch('/api/notify-reject', {
         method: 'POST',
@@ -840,6 +848,29 @@ function NotifyRecipientsPane() {
     setTestSending(false);
   };
 
+  const showPreview = async () => {
+    setMsg(''); setPreviewLoading(true);
+    try {
+      const order = await findLatestReject();
+      if (!order) { setMsg('ไม่พบ Reject order ในระบบสำหรับ preview'); setPreviewLoading(false); return; }
+      const { data: { session } } = await supabase.auth.getSession();
+      const r = await fetch('/api/notify-reject', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token || ''}` },
+        body: JSON.stringify({ order_id: order.id, preview: true })
+      });
+      const j = await r.json();
+      if (r.ok && j.ok) setPreview({
+        subject: j.subject, html: j.html, recipients: j.recipients,
+        order_no: j.order_no, ncr_no: j.ncr_no
+      });
+      else setMsg(`❌ ${j.error || 'preview failed'}`);
+    } catch (e: any) {
+      setMsg('❌ ' + (e?.message || 'error'));
+    }
+    setPreviewLoading(false);
+  };
+
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -847,13 +878,19 @@ function NotifyRecipientsPane() {
           <h2 className="font-display font-bold text-lg">📧 Reject Notification Recipients</h2>
           <p className="text-xs text-on-surface-variant mt-0.5">
             อีเมลในรายการ enabled จะได้รับแจ้งเตือนทุกครั้งที่บันทึก Order = Reject
+            {!canEdit && <span className="ml-1 italic">(qc_admin: ดูข้อมูล + ส่งทดสอบ + ดู preview ได้ — แก้รายชื่อต้องใช้ admin)</span>}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={showPreview} disabled={previewLoading} className="btn-secondary text-sm">
+            {previewLoading ? 'กำลังโหลด…' : '👁️ Preview email'}
+          </button>
           <button onClick={sendTest} disabled={testSending} className="btn-secondary text-sm">
             {testSending ? 'กำลังส่ง…' : '✉️ ส่งทดสอบ / Test send'}
           </button>
-          <button onClick={() => setEditing({ enabled: true })} className="btn-primary text-sm">+ เพิ่มอีเมล</button>
+          {canEdit && (
+            <button onClick={() => setEditing({ enabled: true })} className="btn-primary text-sm">+ เพิ่มอีเมล</button>
+          )}
         </div>
       </div>
       {msg && <div className={`rounded-md px-3 py-2 text-sm ${msg.startsWith('✅') ? 'bg-primary-container text-on-primary-container' : 'bg-error-container text-error'}`}>{msg}</div>}
@@ -880,14 +917,23 @@ function NotifyRecipientsPane() {
                 <td className="py-2 px-2">{r.name || '—'}</td>
                 <td className="py-2 px-2 text-on-surface-variant">{r.role_label || '—'}</td>
                 <td className="py-2 px-2 text-center">
-                  <button onClick={() => toggle(r)}
-                    className={`chip text-[10px] ${r.enabled ? 'bg-primary-container text-on-primary-container' : 'bg-surface-high text-on-surface-variant'}`}>
-                    {r.enabled ? '✓ ON' : '○ OFF'}
-                  </button>
+                  {canEdit ? (
+                    <button onClick={() => toggle(r)}
+                      className={`chip text-[10px] ${r.enabled ? 'bg-primary-container text-on-primary-container' : 'bg-surface-high text-on-surface-variant'}`}>
+                      {r.enabled ? '✓ ON' : '○ OFF'}
+                    </button>
+                  ) : (
+                    <span className={`chip text-[10px] ${r.enabled ? 'bg-primary-container text-on-primary-container' : 'bg-surface-high text-on-surface-variant'}`}>
+                      {r.enabled ? '✓ ON' : '○ OFF'}
+                    </span>
+                  )}
                 </td>
                 <td className="py-2 px-2 text-right space-x-2">
-                  <button onClick={() => setEditing(r)} className="text-xs text-primary hover:underline">แก้ไข</button>
-                  <button onClick={() => del(r.id)} className="text-xs text-error hover:underline">ลบ</button>
+                  {canEdit && <>
+                    <button onClick={() => setEditing(r)} className="text-xs text-primary hover:underline">แก้ไข</button>
+                    <button onClick={() => del(r.id)} className="text-xs text-error hover:underline">ลบ</button>
+                  </>}
+                  {!canEdit && <span className="text-xs text-on-surface-variant italic">read-only</span>}
                 </td>
               </tr>
             ))}
@@ -895,7 +941,7 @@ function NotifyRecipientsPane() {
         </table>
       )}
 
-      {editing && (
+      {editing && canEdit && (
         <EditModal title={editing.id ? 'แก้ไขผู้รับ' : 'เพิ่มผู้รับ'} onClose={() => { setEditing(null); setMsg(''); }}>
           <form onSubmit={save} className="space-y-4">
             <Field label="Email *" value={editing.email}
@@ -919,6 +965,51 @@ function NotifyRecipientsPane() {
             </div>
           </form>
         </EditModal>
+      )}
+
+      {/* Email Preview Modal */}
+      {preview && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto" onClick={() => setPreview(null)}>
+          <div className="fixed inset-0 bg-inverse/50 backdrop-blur-sm" />
+          <div className="relative bg-surface-lowest rounded-lg shadow-ambient w-full max-w-3xl my-8" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-outline-variant/15 sticky top-0 bg-surface-lowest rounded-t-lg z-10">
+              <div className="flex items-start justify-between gap-2 flex-wrap">
+                <div>
+                  <h3 className="font-display font-bold">👁️ Email Preview</h3>
+                  <p className="text-xs text-on-surface-variant mt-0.5">
+                    Order: <span className="font-mono">{preview.order_no}</span>
+                    {preview.ncr_no && <> · NCR: <span className="font-mono">{preview.ncr_no}</span></>}
+                  </p>
+                </div>
+                <button onClick={() => setPreview(null)} className="btn-secondary text-sm">ปิด / Close</button>
+              </div>
+            </div>
+            <div className="p-5 space-y-3">
+              <div className="text-sm">
+                <div className="text-[11px] uppercase tracking-wide text-on-surface-variant">Subject</div>
+                <div className="font-medium mt-0.5">{preview.subject}</div>
+              </div>
+              <div className="text-sm">
+                <div className="text-[11px] uppercase tracking-wide text-on-surface-variant">To ({preview.recipients.length})</div>
+                <div className="text-xs font-mono mt-0.5">
+                  {preview.recipients.length === 0 ? <span className="italic text-on-surface-variant">— ไม่มีผู้รับที่ enabled —</span> : preview.recipients.join(', ')}
+                </div>
+              </div>
+              <div className="text-sm">
+                <div className="text-[11px] uppercase tracking-wide text-on-surface-variant mb-1">Body (HTML preview)</div>
+                <iframe
+                  title="Email preview"
+                  srcDoc={preview.html}
+                  style={{ width: '100%', height: '60vh', border: '1px solid #e5e7eb', borderRadius: 4, background: '#fff' }}
+                  sandbox=""
+                />
+              </div>
+              <p className="text-[11px] text-on-surface-variant italic">
+                💡 Preview ไม่ได้ส่งจริง — ไม่รวม PDF attachment (PDF generate ตอน save จริงเท่านั้น)
+              </p>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );
