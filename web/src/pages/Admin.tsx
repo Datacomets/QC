@@ -776,8 +776,23 @@ interface RecipientRow {
   enabled: boolean;
 }
 
+interface SendLogRow {
+  id: number;
+  order_id: number | null;
+  order_no: string | null;
+  ncr_no: string | null;
+  recipient_count: number;
+  recipient_emails: string | null;
+  attached_pdf: boolean;
+  status: string;
+  error_detail: string | null;
+  sent_at: string;
+}
+
 function NotifyRecipientsPane({ canEdit }: { canEdit: boolean }) {
   const [rows, setRows] = useState<RecipientRow[]>([]);
+  const [sendHistory, setSendHistory] = useState<SendLogRow[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Partial<RecipientRow> | null>(null);
   const [msg, setMsg] = useState('');
@@ -803,7 +818,14 @@ function NotifyRecipientsPane({ canEdit }: { canEdit: boolean }) {
     setRows((data as RecipientRow[]) || []);
     setLoading(false);
   };
-  useEffect(() => { load(); }, []);
+  const loadHistory = async () => {
+    setHistoryLoading(true);
+    const { data } = await supabase.from('notification_send_log')
+      .select('*').order('sent_at', { ascending: false }).limit(50);
+    setSendHistory((data as SendLogRow[]) || []);
+    setHistoryLoading(false);
+  };
+  useEffect(() => { load(); loadHistory(); }, []);
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
@@ -927,6 +949,8 @@ function NotifyRecipientsPane({ canEdit }: { canEdit: boolean }) {
           if (cancelled) return;
           if (r.ok && j.ok) setMsg(`✅ ส่งทดสอบสำเร็จ (${j.recipients} ผู้รับ${j.attached_pdf ? ' · แนบ PDF' : ''})`);
           else setMsg(`❌ ${j.error || j.skipped || 'ส่งไม่สำเร็จ'}`);
+          // refresh history so the new send shows up
+          loadHistory();
         }
       } catch (e: any) {
         if (!cancelled) setMsg('❌ ' + (e?.message || 'error'));
@@ -1010,6 +1034,66 @@ function NotifyRecipientsPane({ canEdit }: { canEdit: boolean }) {
           </tbody>
         </table>
       )}
+
+      {/* Send History — last 50 sends */}
+      <div className="pt-6 border-t border-outline-variant/15">
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+          <div>
+            <h3 className="font-display font-semibold">📜 ประวัติการส่ง / Send History</h3>
+            <p className="text-xs text-on-surface-variant mt-0.5">50 รายการล่าสุด</p>
+          </div>
+          <button onClick={loadHistory} disabled={historyLoading} className="btn-secondary text-xs">
+            {historyLoading ? 'กำลังโหลด…' : '🔄 รีเฟรช'}
+          </button>
+        </div>
+        {historyLoading ? (
+          <p className="text-sm text-on-surface-variant">กำลังโหลด…</p>
+        ) : sendHistory.length === 0 ? (
+          <p className="text-sm text-on-surface-variant italic">ยังไม่มีประวัติการส่ง</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-xs uppercase tracking-wide text-on-surface-variant">
+                <tr className="border-b border-outline-variant/20">
+                  <th className="text-left py-2 px-2">เวลา / When</th>
+                  <th className="text-left py-2 px-2">Order No</th>
+                  <th className="text-left py-2 px-2">NCR No</th>
+                  <th className="text-center py-2 px-2">ผู้รับ</th>
+                  <th className="text-center py-2 px-2">PDF</th>
+                  <th className="text-center py-2 px-2">สถานะ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sendHistory.map(r => (
+                  <tr key={r.id} className="border-b border-outline-variant/10 hover:bg-surface-low">
+                    <td className="py-2 px-2 text-xs font-mono whitespace-nowrap">
+                      {new Date(r.sent_at).toLocaleString('en-GB', {
+                        day: '2-digit', month: '2-digit', year: 'numeric',
+                        hour: '2-digit', minute: '2-digit'
+                      })}
+                    </td>
+                    <td className="py-2 px-2 font-mono text-xs">{r.order_no || '—'}</td>
+                    <td className="py-2 px-2 font-mono text-xs">{r.ncr_no || '—'}</td>
+                    <td className="py-2 px-2 text-center" title={r.recipient_emails || ''}>{r.recipient_count}</td>
+                    <td className="py-2 px-2 text-center">{r.attached_pdf ? '📎' : '—'}</td>
+                    <td className="py-2 px-2 text-center">
+                      <span className={`chip text-[10px] ${
+                        r.status === 'success' ? 'bg-primary-container text-on-primary-container' :
+                        r.status === 'failed' ? 'bg-error-container text-error' :
+                        'bg-surface-high text-on-surface-variant'
+                      }`} title={r.error_detail || ''}>
+                        {r.status === 'success' ? '✓ Sent' :
+                         r.status === 'failed' ? '✗ Failed' :
+                         '○ Skipped'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {editing && canEdit && (
         <EditModal title={editing.id ? 'แก้ไขผู้รับ' : 'เพิ่มผู้รับ'} onClose={() => { setEditing(null); setMsg(''); }}>

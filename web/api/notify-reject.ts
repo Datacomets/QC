@@ -246,12 +246,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
+  // Helper to write a send-log row (best-effort; never blocks the response)
+  const logSend = async (status: 'success' | 'failed' | 'skipped', errorDetail?: string, attachedPdf = false) => {
+    try {
+      await admin.from('notification_send_log').insert({
+        order_id: order.id,
+        order_no: order.order_no,
+        ncr_no: ncr?.ncr_no || null,
+        recipient_count: toList.length,
+        recipient_emails: toList.join(', ') || null,
+        attached_pdf: attachedPdf,
+        status,
+        error_detail: errorDetail || null,
+        triggered_by: userData.user.id
+      });
+    } catch (e) {
+      console.warn('send-log insert failed:', (e as any)?.message);
+    }
+  };
+
   if (toList.length === 0) {
+    await logSend('skipped', 'no_recipients');
     return res.status(200).json({ skipped: 'no_recipients' });
   }
 
   // Send via SMTP
   if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
+    await logSend('failed', 'SMTP not configured');
     return res.status(500).json({ error: 'SMTP not configured' });
   }
   const transporter = nodemailer.createTransport({
@@ -278,6 +299,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       text: mail.text,
       attachments
     });
+    await logSend('success', undefined, !!attachments);
     return res.status(200).json({
       ok: true,
       message_id: info.messageId,
@@ -286,6 +308,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   } catch (e: any) {
     console.error('SMTP send failed:', e?.message);
+    await logSend('failed', e?.message, !!attachments);
     return res.status(500).json({ error: 'Email send failed', detail: e?.message });
   }
 }
