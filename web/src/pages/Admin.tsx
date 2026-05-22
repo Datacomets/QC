@@ -790,7 +790,11 @@ function NotifyRecipientsPane({ canEdit }: { canEdit: boolean }) {
     pdfDataUri: string | null; pdfFilename: string | null;
   } | null>(null);
   // Offscreen PDF source — when set, hidden NcrReport renders + useEffect generates PDF
-  const [pdfSrc, setPdfSrc] = useState<{ order: any; details: any[]; ncr: any; creator: string | null } | null>(null);
+  // mode tells what to do after PDF is ready: show preview OR send test email
+  const [pdfSrc, setPdfSrc] = useState<{
+    order: any; details: any[]; ncr: any; creator: string | null;
+    mode: 'preview' | 'send';
+  } | null>(null);
   const ncrPdfRef = useRef<HTMLDivElement>(null);
 
   const load = async () => {
@@ -832,57 +836,45 @@ function NotifyRecipientsPane({ canEdit }: { canEdit: boolean }) {
     await load();
   };
 
-  const findLatestReject = async () => {
-    const { data: order } = await supabase.from('qc_orders')
-      .select('id').eq('status', 'Reject').order('created_at', { ascending: false }).limit(1).maybeSingle();
-    return order;
+  const loadRejectPayload = async () => {
+    const { data: orderRow } = await supabase.from('qc_orders')
+      .select('*').eq('status', 'Reject')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (!orderRow) return null;
+    const [detailsRes, ncrRes, creatorRes] = await Promise.all([
+      supabase.from('qc_order_details').select('*').eq('order_id', orderRow.id).order('id'),
+      supabase.from('ncr_reports').select('*').eq('order_id', orderRow.id).maybeSingle(),
+      orderRow.created_by
+        ? supabase.from('profiles').select('full_name').eq('id', orderRow.created_by).maybeSingle()
+        : Promise.resolve({ data: null })
+    ]);
+    return {
+      order: orderRow,
+      details: (detailsRes.data as any[]) || [],
+      ncr: ncrRes.data,
+      creator: (creatorRes.data as any)?.full_name || null
+    };
   };
 
   const sendTest = async () => {
     setMsg(''); setTestSending(true);
     try {
-      const order = await findLatestReject();
-      if (!order) { setMsg('ไม่พบ Reject order ในระบบสำหรับทดสอบ'); setTestSending(false); return; }
-      const { data: { session } } = await supabase.auth.getSession();
-      const r = await fetch('/api/notify-reject', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token || ''}` },
-        body: JSON.stringify({ order_id: order.id })
-      });
-      const j = await r.json();
-      if (r.ok && j.ok) setMsg(`✅ ส่งทดสอบสำเร็จ (${j.recipients} ผู้รับ)`);
-      else setMsg(`❌ ${j.error || j.skipped || 'ส่งไม่สำเร็จ'}`);
+      const payload = await loadRejectPayload();
+      if (!payload) { setMsg('ไม่พบ Reject order ในระบบสำหรับทดสอบ'); setTestSending(false); return; }
+      // Trigger offscreen render → useEffect generates PDF → actually sends email
+      setPdfSrc({ ...payload, mode: 'send' });
     } catch (e: any) {
       setMsg('❌ ' + (e?.message || 'error'));
+      setTestSending(false);
     }
-    setTestSending(false);
   };
 
   const showPreview = async () => {
     setMsg(''); setPreview(null); setPreviewLoading(true);
     try {
-      // 1. Find latest Reject
-      const { data: orderRow } = await supabase.from('qc_orders')
-        .select('*').eq('status', 'Reject')
-        .order('created_at', { ascending: false }).limit(1).maybeSingle();
-      if (!orderRow) { setMsg('ไม่พบ Reject order ในระบบสำหรับ preview'); setPreviewLoading(false); return; }
-
-      // 2. Load related rows for the offscreen NcrReport
-      const [detailsRes, ncrRes, creatorRes] = await Promise.all([
-        supabase.from('qc_order_details').select('*').eq('order_id', orderRow.id).order('id'),
-        supabase.from('ncr_reports').select('*').eq('order_id', orderRow.id).maybeSingle(),
-        orderRow.created_by
-          ? supabase.from('profiles').select('full_name').eq('id', orderRow.created_by).maybeSingle()
-          : Promise.resolve({ data: null })
-      ]);
-
-      // 3. Trigger offscreen render (useEffect picks up from here)
-      setPdfSrc({
-        order: orderRow,
-        details: (detailsRes.data as any[]) || [],
-        ncr: ncrRes.data,
-        creator: (creatorRes.data as any)?.full_name || null
-      });
+      const payload = await loadRejectPayload();
+      if (!payload) { setMsg('ไม่พบ Reject order ในระบบสำหรับ preview'); setPreviewLoading(false); return; }
+      setPdfSrc({ ...payload, mode: 'preview' });
     } catch (e: any) {
       setMsg('❌ ' + (e?.message || 'error'));
       setPreviewLoading(false);
@@ -928,31 +920,50 @@ function NotifyRecipientsPane({ canEdit }: { canEdit: boolean }) {
 
         if (cancelled) return;
 
-        // Fetch email HTML preview
         const { data: { session } } = await supabase.auth.getSession();
-        const r = await fetch('/api/notify-reject', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token || ''}` },
-          body: JSON.stringify({ order_id: pdfSrc.order.id, preview: true })
-        });
-        const j = await r.json();
-        if (cancelled) return;
+        const token = session?.access_token || '';
+        const pdfFilename = `${pdfSrc.ncr?.ncr_no || pdfSrc.order.order_no}.pdf`;
 
-        if (r.ok && j.ok) {
-          setPreview({
-            subject: j.subject, html: j.html, recipients: j.recipients,
-            order_no: j.order_no, ncr_no: j.ncr_no,
-            pdfDataUri,
-            pdfFilename: `${j.ncr_no || j.order_no}.pdf`
+        if (pdfSrc.mode === 'preview') {
+          // Fetch rendered email HTML (no send) — pair it with the PDF data URI in modal
+          const r = await fetch('/api/notify-reject', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ order_id: pdfSrc.order.id, preview: true })
           });
+          const j = await r.json();
+          if (cancelled) return;
+          if (r.ok && j.ok) {
+            setPreview({
+              subject: j.subject, html: j.html, recipients: j.recipients,
+              order_no: j.order_no, ncr_no: j.ncr_no,
+              pdfDataUri, pdfFilename
+            });
+          } else {
+            setMsg(`❌ ${j.error || 'preview failed'}`);
+          }
         } else {
-          setMsg(`❌ ${j.error || 'preview failed'}`);
+          // mode === 'send' → actually send email with PDF attached
+          const r = await fetch('/api/notify-reject', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({
+              order_id: pdfSrc.order.id,
+              pdf_base64: pdfDataUri,
+              pdf_filename: pdfFilename
+            })
+          });
+          const j = await r.json();
+          if (cancelled) return;
+          if (r.ok && j.ok) setMsg(`✅ ส่งทดสอบสำเร็จ (${j.recipients} ผู้รับ${j.attached_pdf ? ' · แนบ PDF' : ''})`);
+          else setMsg(`❌ ${j.error || j.skipped || 'ส่งไม่สำเร็จ'}`);
         }
       } catch (e: any) {
-        if (!cancelled) setMsg('❌ ' + (e?.message || 'preview error'));
+        if (!cancelled) setMsg('❌ ' + (e?.message || 'error'));
       } finally {
         if (!cancelled) {
           setPreviewLoading(false);
+          setTestSending(false);
           setPdfSrc(null);  // unmount offscreen render after capture
         }
       }
