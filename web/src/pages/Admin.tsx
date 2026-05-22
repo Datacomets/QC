@@ -1,7 +1,10 @@
 import { ChangeEvent, DragEvent, FormEvent, useEffect, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import NcrReport from '../components/NcrReport';
 
 type Tab = 'suppliers' | 'defects' | 'brand_resp' | 'notify' | 'users';
 
@@ -781,7 +784,14 @@ function NotifyRecipientsPane({ canEdit }: { canEdit: boolean }) {
   const [msg, setMsg] = useState('');
   const [testSending, setTestSending] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [preview, setPreview] = useState<{ subject: string; html: string; recipients: string[]; order_no: string; ncr_no: string | null } | null>(null);
+  const [preview, setPreview] = useState<{
+    subject: string; html: string; recipients: string[];
+    order_no: string; ncr_no: string | null;
+    pdfDataUri: string | null; pdfFilename: string | null;
+  } | null>(null);
+  // Offscreen PDF source — when set, hidden NcrReport renders + useEffect generates PDF
+  const [pdfSrc, setPdfSrc] = useState<{ order: any; details: any[]; ncr: any; creator: string | null } | null>(null);
+  const ncrPdfRef = useRef<HTMLDivElement>(null);
 
   const load = async () => {
     setLoading(true);
@@ -849,27 +859,106 @@ function NotifyRecipientsPane({ canEdit }: { canEdit: boolean }) {
   };
 
   const showPreview = async () => {
-    setMsg(''); setPreviewLoading(true);
+    setMsg(''); setPreview(null); setPreviewLoading(true);
     try {
-      const order = await findLatestReject();
-      if (!order) { setMsg('ไม่พบ Reject order ในระบบสำหรับ preview'); setPreviewLoading(false); return; }
-      const { data: { session } } = await supabase.auth.getSession();
-      const r = await fetch('/api/notify-reject', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token || ''}` },
-        body: JSON.stringify({ order_id: order.id, preview: true })
+      // 1. Find latest Reject
+      const { data: orderRow } = await supabase.from('qc_orders')
+        .select('*').eq('status', 'Reject')
+        .order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (!orderRow) { setMsg('ไม่พบ Reject order ในระบบสำหรับ preview'); setPreviewLoading(false); return; }
+
+      // 2. Load related rows for the offscreen NcrReport
+      const [detailsRes, ncrRes, creatorRes] = await Promise.all([
+        supabase.from('qc_order_details').select('*').eq('order_id', orderRow.id).order('id'),
+        supabase.from('ncr_reports').select('*').eq('order_id', orderRow.id).maybeSingle(),
+        orderRow.created_by
+          ? supabase.from('profiles').select('full_name').eq('id', orderRow.created_by).maybeSingle()
+          : Promise.resolve({ data: null })
+      ]);
+
+      // 3. Trigger offscreen render (useEffect picks up from here)
+      setPdfSrc({
+        order: orderRow,
+        details: (detailsRes.data as any[]) || [],
+        ncr: ncrRes.data,
+        creator: (creatorRes.data as any)?.full_name || null
       });
-      const j = await r.json();
-      if (r.ok && j.ok) setPreview({
-        subject: j.subject, html: j.html, recipients: j.recipients,
-        order_no: j.order_no, ncr_no: j.ncr_no
-      });
-      else setMsg(`❌ ${j.error || 'preview failed'}`);
     } catch (e: any) {
       setMsg('❌ ' + (e?.message || 'error'));
+      setPreviewLoading(false);
     }
-    setPreviewLoading(false);
   };
+
+  // When pdfSrc is set + offscreen NcrReport mounts, render → PDF base64 → fetch email HTML
+  useEffect(() => {
+    if (!pdfSrc || !ncrPdfRef.current) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        // Wait for offscreen images to load
+        const imgs = ncrPdfRef.current!.querySelectorAll('img');
+        await Promise.all(Array.from(imgs).map(img =>
+          img.complete ? Promise.resolve() : new Promise(resolve => {
+            img.onload = resolve; img.onerror = resolve;
+            setTimeout(resolve, 5000);
+          })
+        ));
+        if (cancelled) return;
+
+        // Capture NcrReport to multi-page A4 PDF
+        const canvas = await html2canvas(ncrPdfRef.current!, {
+          scale: 2, backgroundColor: '#fff', useCORS: true, logging: false
+        });
+        const imgData = canvas.toDataURL('image/jpeg', 0.9);
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pageW = pdf.internal.pageSize.getWidth();
+        const pageH = pdf.internal.pageSize.getHeight();
+        const imgH = (canvas.height * pageW) / canvas.width;
+        let heightLeft = imgH;
+        let position = 0;
+        pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
+        heightLeft -= pageH;
+        while (heightLeft > 0) {
+          position = -(imgH - heightLeft);
+          pdf.addPage();
+          pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
+          heightLeft -= pageH;
+        }
+        const pdfDataUri = pdf.output('datauristring');
+
+        if (cancelled) return;
+
+        // Fetch email HTML preview
+        const { data: { session } } = await supabase.auth.getSession();
+        const r = await fetch('/api/notify-reject', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token || ''}` },
+          body: JSON.stringify({ order_id: pdfSrc.order.id, preview: true })
+        });
+        const j = await r.json();
+        if (cancelled) return;
+
+        if (r.ok && j.ok) {
+          setPreview({
+            subject: j.subject, html: j.html, recipients: j.recipients,
+            order_no: j.order_no, ncr_no: j.ncr_no,
+            pdfDataUri,
+            pdfFilename: `${j.ncr_no || j.order_no}.pdf`
+          });
+        } else {
+          setMsg(`❌ ${j.error || 'preview failed'}`);
+        }
+      } catch (e: any) {
+        if (!cancelled) setMsg('❌ ' + (e?.message || 'preview error'));
+      } finally {
+        if (!cancelled) {
+          setPreviewLoading(false);
+          setPdfSrc(null);  // unmount offscreen render after capture
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [pdfSrc]);
 
   return (
     <section className="space-y-4">
@@ -967,6 +1056,19 @@ function NotifyRecipientsPane({ canEdit }: { canEdit: boolean }) {
         </EditModal>
       )}
 
+      {/* Offscreen NCR PDF render — mounted only when generating preview */}
+      {pdfSrc && pdfSrc.ncr && (
+        <div style={{ position: 'fixed', left: '-99999px', top: 0, width: '794px', pointerEvents: 'none' }}>
+          <NcrReport
+            ref={ncrPdfRef}
+            ncr={pdfSrc.ncr}
+            order={pdfSrc.order}
+            details={pdfSrc.details}
+            createdByName={pdfSrc.creator}
+          />
+        </div>
+      )}
+
       {/* Email Preview Modal */}
       {preview && (
         <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto" onClick={() => setPreview(null)}>
@@ -1000,12 +1102,35 @@ function NotifyRecipientsPane({ canEdit }: { canEdit: boolean }) {
                 <iframe
                   title="Email preview"
                   srcDoc={preview.html}
-                  style={{ width: '100%', height: '60vh', border: '1px solid #e5e7eb', borderRadius: 4, background: '#fff' }}
+                  style={{ width: '100%', height: '50vh', border: '1px solid #e5e7eb', borderRadius: 4, background: '#fff' }}
                   sandbox=""
                 />
               </div>
+
+              {preview.pdfDataUri && (
+                <div className="text-sm">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="text-[11px] uppercase tracking-wide text-on-surface-variant">
+                      📎 PDF Attachment ({preview.pdfFilename})
+                    </div>
+                    <a
+                      href={preview.pdfDataUri}
+                      download={preview.pdfFilename || 'preview.pdf'}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      ⬇ ดาวน์โหลด
+                    </a>
+                  </div>
+                  <iframe
+                    title="NCR PDF preview"
+                    src={preview.pdfDataUri}
+                    style={{ width: '100%', height: '60vh', border: '1px solid #e5e7eb', borderRadius: 4, background: '#fff' }}
+                  />
+                </div>
+              )}
+
               <p className="text-[11px] text-on-surface-variant italic">
-                💡 Preview ไม่ได้ส่งจริง — ไม่รวม PDF attachment (PDF generate ตอน save จริงเท่านั้น)
+                💡 Preview นี้แสดงข้อมูลเดียวกับที่จะถูกส่งจริง (ดึงจาก Reject order ล่าสุด) — ไม่ได้ส่ง email ออกไป
               </p>
             </div>
           </div>
