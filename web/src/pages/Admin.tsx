@@ -905,13 +905,17 @@ function NotifyRecipientsPane({ canEdit }: { canEdit: boolean }) {
         const pdf = new jsPDF('p', 'mm', 'a4');
         const pageW = pdf.internal.pageSize.getWidth();
         const pageH = pdf.internal.pageSize.getHeight();
-        // Fit-to-page: scale entire content to a single A4 page
-        const scale = Math.min(pageW / canvas.width, pageH / canvas.height);
-        const fitW = canvas.width * scale;
-        const fitH = canvas.height * scale;
-        const offsetX = (pageW - fitW) / 2;
-        const offsetY = (pageH - fitH) / 2;
-        pdf.addImage(imgData, 'JPEG', offsetX, offsetY, fitW, fitH);
+        const imgH = (canvas.height * pageW) / canvas.width;
+        let heightLeft = imgH;
+        let position = 0;
+        pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
+        heightLeft -= pageH;
+        while (heightLeft > 0) {
+          position = -(imgH - heightLeft);
+          pdf.addPage();
+          pdf.addImage(imgData, 'JPEG', 0, position, pageW, imgH);
+          heightLeft -= pageH;
+        }
         const pdfDataUri = pdf.output('datauristring');
 
         if (cancelled) return;
