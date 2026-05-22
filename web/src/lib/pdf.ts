@@ -4,7 +4,10 @@
 import html2pdf from 'html2pdf.js';
 
 const baseOptions = (filename: string): any => ({
-  margin: [10, 10, 10, 10],
+  // NcrReport is designed at 794px (≈ A4 width @ 96 DPI). Use 0 margin so
+  // content fills the page edge-to-edge — html2pdf reserves margin space
+  // inside the page, so any positive margin clips our 794px content.
+  margin: 0,
   filename,
   image: { type: 'jpeg', quality: 0.95 },
   html2canvas: { scale: 2, backgroundColor: '#fff', useCORS: true, logging: false },
