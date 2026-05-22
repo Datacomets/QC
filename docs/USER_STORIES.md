@@ -1,7 +1,7 @@
 # User Stories — QC Inspection Web App
 
-**Version:** 2.3.2
-**Last Updated:** 21 พฤษภาคม 2026
+**Version:** 2.4.0
+**Last Updated:** 22 พฤษภาคม 2026
 **Companion to:** [PRD.md](PRD.md)
 
 ---
@@ -601,6 +601,80 @@ US-XX: As a [role], I want [action], so that [benefit]
 
 ---
 
+## Epic 14 — Reject Email Notification (v2.4.0)
+
+### US-1401: ส่งอีเมลแจ้งเตือนอัตโนมัติเมื่อ save Reject 👷
+**As a** system, **I want to** ส่งอีเมลพร้อม NCR PDF ไปยัง recipient list ทุกครั้งที่บันทึก Order = Reject **so that** ทีมที่เกี่ยวข้องรับทราบทันที
+
+**Acceptance Criteria:**
+- หลังกด "ยืนยันบันทึก" ใน Review popup ของ QC Entry ที่ status = Reject:
+  1. โหลด order + details + NCR + creator
+  2. Render NcrReport offscreen → html2pdf.js → PDF base64
+  3. POST `/api/notify-reject` { order_id, pdf_base64, pdf_filename }
+  4. API ส่งอีเมล bilingual (Thai + English) ผ่าน Nodemailer + Gmail SMTP
+- Subject: `🔴 [QC Reject] <Order No> — <Description>`
+- Body: Order info, % ของเสีย, defect list, link กลับไปหน้าระบบ
+- Attach: `<NCR_No>.pdf` (1+ pages, A4 portrait, page-break-aware)
+- Status chip ใน Success view: เตรียม PDF → ส่งอีเมล → สำเร็จ/ล้มเหลว
+- Fire-and-forget: ไม่ block UI; ถ้า user ปิด browser ก่อน PDF gen เสร็จ → email อาจไม่มี PDF
+
+### US-1402: Admin จัดการ recipient list 👑
+**As an** admin, **I want to** เพิ่ม/แก้ไข/ลบ/ปิด-เปิดใช้งานอีเมลใน recipient list **so that** ควบคุมว่าใครจะได้รับแจ้งเตือน
+
+**Acceptance Criteria:**
+- Tab "📧 Reject Notify" ใน Admin Panel — เห็นเฉพาะ admin + qc_admin
+- ตารางคอลัมน์: Email, Name, Role/Label, Enabled (chip ON/OFF), Actions
+- ปุ่ม "+ เพิ่มอีเมล" → modal กรอก email/name/role_label + checkbox Enabled
+- ปุ่ม "แก้ไข" / "ลบ" บนแต่ละแถว
+- กด chip ON/OFF → toggle enabled แบบ inline
+- RLS: read = authenticated, write = admin only
+- Seed: `sls03@cometsintertrade.com` (Admin System) [ON]
+
+### US-1403: qc_admin มีสิทธิ์ดู + ส่งทดสอบ + Preview (v2.4.0) 🛡️
+**As a** qc_admin, **I want to** เข้า tab Reject Notify เพื่อทดสอบส่ง + ดู preview email **so that** ตรวจ format ก่อน + รู้ว่าระบบทำงานอยู่ — โดยไม่ต้องเป็น admin
+
+**Acceptance Criteria:**
+- qc_admin เห็น tab "📧 Reject Notify" (เดิม admin only)
+- qc_admin ใช้ได้: ดูตาราง, "✉️ ส่งทดสอบ", "👁️ Preview email"
+- qc_admin ใช้ไม่ได้ (admin only): "+ เพิ่มอีเมล", "แก้ไข", "ลบ", toggle ON/OFF
+- ใน UI: rows มี chip enabled แต่กดไม่ได้ (read-only); column Actions แสดง "read-only"
+
+### US-1404: Preview Email ก่อนส่งจริง 🛡️👑
+**As an** admin/qc_admin, **I want to** ดู preview ของอีเมล + PDF ที่จะถูกส่ง **so that** ตรวจ subject, recipients, body, และ NCR PDF format ก่อน
+
+**Acceptance Criteria:**
+- ปุ่ม "👁️ Preview email" บนหัว tab
+- กดแล้ว: ระบบหา Reject order ล่าสุด → load related rows → render PDF offscreen → fetch `/api/notify-reject?preview=true`
+- Modal popup แสดง:
+  - Subject ที่จะส่ง
+  - To list (ทุก recipient ที่ enabled) — แสดงจำนวน + ลิสต์
+  - Body — iframe sandboxed แสดง HTML email
+  - 📎 PDF Attachment — iframe แสดง PDF + ปุ่ม "⬇ ดาวน์โหลด"
+- Note: "Preview นี้แสดงข้อมูลเดียวกับที่จะถูกส่งจริง — ไม่ได้ส่ง email"
+
+### US-1405: ส่งทดสอบ — ใช้ Reject order ล่าสุด 🛡️👑
+**As an** admin/qc_admin, **I want to** กดปุ่มเดียวเพื่อส่ง email จริงไปยังทุก recipient ที่ enabled **so that** ทดสอบ end-to-end ว่าระบบใช้ได้
+
+**Acceptance Criteria:**
+- ปุ่ม "✉️ Test send"
+- กดแล้ว: หา Reject order ล่าสุด → render PDF offscreen → ส่งอีเมลจริง พร้อม attachment
+- ข้อความ feedback: `✅ ส่งทดสอบสำเร็จ (N ผู้รับ · แนบ PDF)` หรือ `❌ <error>`
+- Send History ถูก refresh อัตโนมัติหลังกด
+
+### US-1406: ประวัติการส่ง / Send History (v2.4.0) 🛡️👑
+**As an** admin/qc_admin, **I want to** เห็นประวัติว่า Order ไหนถูกส่ง email ไปแล้ว เมื่อไหร่ ส่งให้ใครบ้าง **so that** audit + ตรวจสอบว่าระบบทำงาน
+
+**Acceptance Criteria:**
+- Section "📜 ประวัติการส่ง / Send History" ใต้ตารางผู้รับ — 50 รายการล่าสุด
+- คอลัมน์: เวลา (DD/MM/YYYY HH:mm), Order No, NCR No, ผู้รับ (จำนวน), PDF (📎/—), สถานะ (chip ✓ Sent / ✗ Failed / ○ Skipped)
+- Hover ช่อง "ผู้รับ" → tooltip แสดง emails ทั้งหมด
+- Hover chip Failed → tooltip แสดง error detail
+- ปุ่ม "🔄 รีเฟรช" สำหรับ manual reload
+- Auto-refresh หลังกด Test send
+- Source: ตาราง `notification_send_log` (RLS read = admin + qc_admin)
+
+---
+
 ## Epic 13 — Security
 
 ### US-1301: RLS บังคับทุก Mutation
@@ -634,24 +708,21 @@ US-XX: As a [role], I want [action], so that [benefit]
 
 | Tag | Meaning |
 |---|---|
-| ✅ | Implemented & deployed in v2.3.2 |
+| ✅ | Implemented & deployed in v2.4.0 |
 | 🚧 | In progress |
 | 📋 | Backlog (future phases) |
 
-> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.3.2) ยกเว้นที่ระบุไว้
+> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.4.0) ยกเว้นที่ระบุไว้
 
 ---
 
 ## Backlog (Future User Stories — Phase 3+)
 
 ### Phase 3
-- 📋 US-1401: Email notification เมื่อ NCR confirm → PCM (Microsoft Graph + MSAL.js + Outlook OAuth)
-  - Setup Azure AD app registration (delegated permissions: Mail.Send, User.Read)
-  - Send NCR PDF as attachment
-  - DB columns: `confirmed`, `confirmed_by`, `confirmed_at`, `email_sent_status`, `email_sent_at`, `email_error`
-- 📋 US-1402: Bulk import QC Orders จาก Excel
-- 📋 US-1403: Barcode/QR scanner กรอก SAP/Lot
-- 📋 US-1404: NCR module ขยาย (root cause taxonomy, recurring issue tracking)
+- ~~📋 US-1401: Email notification เมื่อ NCR confirm → PCM~~ **DONE in v2.4.0** (ใช้ Gmail SMTP แทน Microsoft Graph — ดู Epic 14)
+- 📋 US-1502: Bulk import QC Orders จาก Excel
+- 📋 US-1503: Barcode/QR scanner กรอก SAP/Lot
+- 📋 US-1504: NCR module ขยาย (root cause taxonomy, recurring issue tracking)
 
 ### Phase 4
 - 📋 US-1501: Multi-approver workflow (QC → QA → Manager)

@@ -1,8 +1,8 @@
 # Product Requirements Document (PRD)
 # QC Inspection — ระบบสุ่มตรวจคุณภาพ
 
-**Version:** 2.3.2
-**Last Updated:** 21 พฤษภาคม 2026
+**Version:** 2.4.0
+**Last Updated:** 22 พฤษภาคม 2026
 **Owner:** Comets Intertrade Co., Ltd.
 **Status:** Active (Production)
 **Live URL:** https://web-mocha-three-44.vercel.app
@@ -25,6 +25,7 @@
 - Dashboard วิเคราะห์ตาม Supplier / Brand / ช่วงเวลา + Export Excel/PDF
 - จัดการ Master Data (Suppliers / Materials / Defects / Brand Responsibilities) ในตัว
 - เอกสาร PDF: ใบ QC Inspection Report (รายตัว), Summary Report (รวมหลาย order), ใบ NCR
+- **(v2.4.0)** Reject email notification — ส่งอีเมลแจ้งเตือนพร้อม NCR PDF อัตโนมัติเมื่อบันทึก Order = Reject (Gmail SMTP)
 
 ### Success Metrics
 - บันทึก QC Order ≤ 3 นาที/ใบ
@@ -365,6 +366,58 @@
 - Admin: ครบ + Users management
 - Viewer: + Dashboard, Material
 
+### 4.12 Reject Email Notification (ใหม่ใน v2.4.0)
+
+ระบบส่งอีเมลแจ้งเตือนอัตโนมัติเมื่อมี Order = Reject — ภายในอีเมลมีรายละเอียดออเดอร์, % ของเสีย, รายการ defect และ **แนบ PDF ใบ NCR** ที่ generate ใหม่ฝั่ง browser
+
+**Architecture:**
+```
+[Save Reject ใน QC Entry] หรือ [กดทดสอบใน Admin]
+        ↓
+   Frontend: render NcrReport offscreen → html2pdf.js → PDF base64
+        ↓
+   POST /api/notify-reject  { order_id, pdf_base64, pdf_filename }
+        ↓
+   Vercel Function:
+     1. ดึง order + details + NCR + recipient list (service-role)
+     2. ตรวจ status === 'Reject' (gate)
+     3. Build bilingual HTML email (subject + body + KPI + defects)
+     4. Send ผ่าน Nodemailer + Gmail SMTP
+     5. INSERT row ลง notification_send_log
+        ↓
+   inbox ของ recipients ที่ enabled
+```
+
+**SMTP Config** (Vercel env vars):
+- `SMTP_HOST` = smtp.gmail.com
+- `SMTP_PORT` = 587
+- `SMTP_USER` = data.comets@gmail.com (ใช้ Gmail App Password)
+- `SMTP_PASS` = 16-char App Password (จาก myaccount.google.com/apppasswords)
+- `SMTP_FROM_NAME` = "QC Inspection — Comets"
+
+**Trigger points:**
+- **Save Reject ใน QC Entry** → fire อัตโนมัติ (fire-and-forget)
+- **Admin/qc_admin กดปุ่ม "✉️ ส่งทดสอบ"** → ใช้ Reject order ล่าสุดเป็น payload
+- **Preview** ก่อนส่งจริงผ่านปุ่ม "👁️ Preview email"
+
+**UI: Admin Panel → tab "📧 Reject Notify"** (admin + qc_admin):
+- ตารางผู้รับ — email, name, role_label, enabled toggle (admin only) + ปุ่มแก้ไข/ลบ (admin only)
+- ปุ่ม **"👁️ Preview email"** — render HTML + PDF iframe + ปุ่มดาวน์โหลด (ไม่ส่งจริง)
+- ปุ่ม **"✉️ Test send"** — ส่งจริงพร้อม PDF
+- ปุ่ม **"+ เพิ่มอีเมล"** (admin only) — modal กรอก email/name/label
+- Section **"📜 ประวัติการส่ง / Send History"** — 50 รายการล่าสุด (เวลา, Order No, NCR No, ผู้รับ, PDF flag, สถานะ ✓/✗/○)
+
+**PDF Attachment:**
+- ใช้ NcrReport component (เดียวกับ History download)
+- ผ่าน `html2pdf.js` + `pageBreakInside: 'avoid'` บน `<Section>` → ตัดที่ขอบ section ไม่ตัดกลาง
+- Vertical margin 10mm, horizontal 0mm (NcrReport กว้าง 794px ≈ A4 width)
+- Filename = `<NCR_No>.pdf`
+
+**Status chip ใน Success view (หลัง save):**
+```
+⏳ กำลังเตรียม PDF NCR…  →  📧 กำลังส่งอีเมล…  →  ✅ ส่งสำเร็จ / ⚠️ ส่งไม่สำเร็จ
+```
+
 ---
 
 ## 5. Data Model
@@ -400,6 +453,23 @@
 - `updated_at`, `updated_by`
 - เป็นแหล่งหลักของ Sales/SCM ที่ QC Entry ดึงไปใช้ (materials.sales/scm เป็น fallback)
 - Admin จัดการผ่าน Admin Panel → Brand → Sales/SCM tab
+
+**`notification_recipients`** (v2.4.0 — patch-19)
+- `id` bigserial PK, `email unique`, `name`, `role_label`
+- `enabled boolean default true` — toggle ปิดได้โดยไม่ลบ
+- `created_at`, `updated_at` (auto trigger)
+- RLS: authenticated read; admin only write
+- ตัวอย่าง row เริ่มต้น (seed): `sls03@cometsintertrade.com`
+
+**`notification_send_log`** (v2.4.0 — patch-20)
+- `id` bigserial PK
+- `order_id` FK qc_orders (ON DELETE SET NULL), `order_no`, `ncr_no`
+- `recipient_count int`, `recipient_emails text` (comma-separated สำหรับ audit)
+- `attached_pdf boolean`, `status text` (`success` / `failed` / `skipped`)
+- `error_detail text` (เฉพาะ status='failed')
+- `triggered_by` FK profiles, `sent_at timestamptz default now()`
+- RLS: read = admin + qc_admin; insert = service-role เท่านั้น (API)
+- INSERT 1 row ทุกครั้งที่ `/api/notify-reject` ทำงาน (จากทั้ง save flow และ test send)
 
 **`qc_orders`**
 - `id` bigserial PK, `order_no unique` (auto: `QC<YY><MM><seq4>`)
@@ -503,13 +573,15 @@
 - React hooks + Context (AuthProvider)
 - Recharts (Dashboard)
 - SheetJS (xlsx)
-- jsPDF + html2canvas (PDF reports)
+- jsPDF + html2canvas (Order PDF, Summary PDF)
+- **html2pdf.js** (NCR PDF — page-break-aware via CSS `page-break-inside: avoid`)
 
 ### Backend
 - PostgreSQL (Supabase)
 - Supabase Auth (Email/Password)
 - Supabase Storage (`defect-images`)
-- Vercel Serverless Functions (`/api/admin-users`)
+- Vercel Serverless Functions (`/api/admin-users`, `/api/notify-reject`)
+- Nodemailer (Gmail SMTP) — สำหรับส่ง email แจ้งเตือน Reject
 
 ### Deployment
 - Hosting: Vercel
@@ -543,7 +615,28 @@
 
 ---
 
-## 9. Done in v2.3.2 (เพิ่มจาก v2.3.1)
+## 9. Done in v2.4.0 (เพิ่มจาก v2.3.2)
+
+- ✅ **Reject Email Notification ระบบใหม่** ทั้ง flow
+  - DB: `notification_recipients` (patch-19) + `notification_send_log` (patch-20)
+  - API: `web/api/notify-reject.ts` (Vercel function, Nodemailer + Gmail SMTP)
+  - Frontend: NcrReport offscreen render → html2pdf.js → PDF base64 → POST with attachment
+  - Admin tab "📧 Reject Notify" (admin + qc_admin) — recipients table, Preview email, Test send, Send history (50 รายการล่าสุด)
+  - Status chip ใน Success view ("กำลังเตรียม PDF → กำลังส่งอีเมล → ส่งสำเร็จ")
+  - Seed: `sls03@cometsintertrade.com` ใน patch-19
+  - DB patches: 19, 20
+- ✅ **NCR PDF: html2pdf.js + page-break-aware**
+  - แทน jsPDF + html2canvas เดิม ที่ตัดกลาง section
+  - `pageBreakInside: 'avoid'` บน `<Section>` ใน NcrReport
+  - margin: `[10, 0]` mm (vertical 10, horizontal 0)
+  - Helper `web/src/lib/pdf.ts` ใช้ร่วม 3 จุด (SuccessModal, Admin preview, History download)
+- ✅ **Role gate ของ Reject Notify**
+  - admin: ทุกอย่าง (edit recipients + Test + Preview)
+  - qc_admin: ดู + Test + Preview (อ่าน read-only)
+  - operator/viewer: ไม่เห็น tab
+- ✅ **html2pdf.js + @types/html2pdf.js** dependencies เพิ่มใน package.json
+
+## Done in v2.3.2 (เพิ่มจาก v2.3.1)
 
 - ✅ **Activity Timeline ใน Order Detail Modal (admin only)** — section ใหม่ "ประวัติการดำเนินการ" รวมเหตุการณ์: สร้างเอกสาร / ยืนยันรับ-Lot-ปฏิเสธ / แก้ไขข้อมูล จาก `qc_orders` + `qc_order_edit_log`
 - ✅ **Admin Supplier form — เปลี่ยน required fields**
@@ -676,6 +769,18 @@
 ---
 
 ## 13. Release Notes
+
+### v2.4.0 — 22 พฤษภาคม 2026
+- **Reject Email Notification** (major feature)
+  - DB tables: `notification_recipients`, `notification_send_log` (patch-19, 20)
+  - `/api/notify-reject` Vercel function: Nodemailer + Gmail SMTP, attaches NCR PDF
+  - Admin "📧 Reject Notify" tab — recipients + Preview + Test send + Send history
+  - Pre-seed: sls03@cometsintertrade.com as initial recipient
+- **NCR PDF rendering** switched to html2pdf.js with page-break-aware section splits
+  - `pageBreakInside: 'avoid'` on each section
+  - margin [10, 0] mm — vertical breathing room, no horizontal clipping
+- New shared helper: `web/src/lib/pdf.ts`
+- DB patches: 19, 20
 
 ### v2.3.2 — 21 พฤษภาคม 2026
 - **Activity Timeline** ใน Order Detail Modal (admin only) — ประวัติการดำเนินการรวมเหตุการณ์
