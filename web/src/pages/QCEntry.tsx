@@ -311,11 +311,14 @@ export default function QCEntry() {
               if (list.length === 0) return null;
               return (
                 <optgroup key={grp} label={`━━━ ${grp} (${list.length}) ━━━`}>
-                  {list.map(s => (
-                    <option key={s.sup_code} value={s.sup_code}>
-                      [{grp}] {s.sup_sap_code ? `${s.sup_sap_code}/${s.sup_code}` : s.sup_code}
-                    </option>
-                  ))}
+                  {list.map(s => {
+                    const hasRealSup = s.sup_code && s.sup_sap_code && s.sup_code !== s.sup_sap_code;
+                    return (
+                      <option key={s.sup_code} value={s.sup_code}>
+                        {hasRealSup ? `${s.sup_code} (${s.sup_sap_code})` : (s.sup_sap_code || s.sup_code)}
+                      </option>
+                    );
+                  })}
                 </optgroup>
               );
             })}
@@ -327,15 +330,23 @@ export default function QCEntry() {
               if (others.length === 0) return null;
               return (
                 <optgroup label={`━━━ อื่น ๆ / Other (${others.length}) ━━━`}>
-                  {others.map(s => (
-                    <option key={s.sup_code} value={s.sup_code}>
-                      [Other] {s.sup_sap_code ? `${s.sup_sap_code}/${s.sup_code}` : s.sup_code}
-                    </option>
-                  ))}
+                  {others.map(s => {
+                    const hasRealSup = s.sup_code && s.sup_sap_code && s.sup_code !== s.sup_sap_code;
+                    return (
+                      <option key={s.sup_code} value={s.sup_code}>
+                        {hasRealSup ? `${s.sup_code} (${s.sup_sap_code})` : (s.sup_sap_code || s.sup_code)}
+                      </option>
+                    );
+                  })}
                 </optgroup>
               );
             })()}
           </select>
+          {supplier?.supplier_name && (
+            <div className="text-xs text-slate-500 mt-1">
+              ผู้จัดจำหน่าย / Supplier: <span className="font-medium text-slate-700">{supplier.supplier_name}</span>
+            </div>
+          )}
         </div>
 
         <div>

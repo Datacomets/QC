@@ -109,12 +109,13 @@ export default function History() {
   // Edit log entries for the currently-open order (loaded on modal open)
   const [editLogs, setEditLogs] = useState<Array<{ id: number; edit_reason: string; edited_by: string | null; edited_at: string }>>([]);
 
-  // Suppliers lookup: sup_code → sup_sap_code (used to show "<sap>/<code>" in details)
+  // Suppliers lookup: sup_code → sup_sap_code (show "<sup_code>/<sap>" or fallback to sap)
   const [supplierSapMap, setSupplierSapMap] = useState<Record<string, string | null>>({});
   const supDisplay = (sup_code: string | null) => {
     if (!sup_code) return null;
     const sap = supplierSapMap[sup_code];
-    return sap ? `${sap}/${sup_code}` : sup_code;
+    if (sap && sap !== sup_code) return `${sup_code}/${sap}`;
+    return sap || sup_code;
   };
 
   // Approve modal state
