@@ -482,8 +482,8 @@ export default function History() {
         // Group by status (approved overrides — goes to "อนุมัติ" group)
         const groups: Array<{ key: string; label: string; color: string; items: Order[] }> = [
           { key: 'approved',   label: '✓ อนุมัติแล้ว / Approved',  color: 'bg-primary text-white',                 items: [] },
-          { key: 'accept',     label: 'ผ่าน / Accept',              color: 'bg-primary-container text-on-primary-container', items: [] },
-          { key: 'acceptlot',  label: 'รับ Lot / Accept Lot',       color: 'bg-primary-container text-on-primary-container', items: [] },
+          { key: 'accept',     label: 'ผ่าน / Accept',              color: 'bg-emerald-100 text-emerald-700',        items: [] },
+          { key: 'acceptlot',  label: 'รับ Lot / Accept Lot',       color: 'bg-amber-100 text-amber-800',            items: [] },
           { key: 'reject',     label: '❌ ไม่ผ่าน / Reject',         color: 'bg-error-container text-error',         items: [] },
           { key: 'editing',    label: '✏️ รอแก้ไข / Pending Edit',  color: 'bg-amber-100 text-amber-800',            items: [] },
           { key: 'other',      label: 'อื่น ๆ / Other',             color: 'bg-surface-high text-on-surface',        items: [] }
@@ -519,8 +519,11 @@ export default function History() {
                       <span className="font-display font-bold text-base">{o.order_no}</span>
                       <span className="chip text-[10px]">{fmtDate(o.order_date)}</span>
                       {/* Inspection result — Accept / Accept Lot / Reject only */}
-                      {(o.status === 'Accept' || o.status === 'Accept Lot') && (
-                        <span className="chip text-[10px] bg-primary-container text-on-primary-container">{o.status}</span>
+                      {o.status === 'Accept' && (
+                        <span className="chip text-[10px] bg-emerald-100 text-emerald-700">{o.status}</span>
+                      )}
+                      {o.status === 'Accept Lot' && (
+                        <span className="chip text-[10px] bg-amber-100 text-amber-800">{o.status}</span>
                       )}
                       {o.status === 'Reject' && (
                         <span className="chip text-[10px] bg-error-container text-error">Reject</span>
@@ -560,10 +563,11 @@ export default function History() {
                   </div>
                   <div className="text-right shrink-0">
                     <div className={`font-display font-bold text-2xl ${
-                      o.status === 'Accept Lot' ? 'text-on-surface-variant' :
-                      o.defect_percent > 0 ? 'text-error' : 'text-primary'
+                      o.status === 'Reject' ? 'text-error' :
+                      o.status === 'Accept Lot' ? 'text-amber-600' :
+                      'text-emerald-600'
                     }`}>
-                      {o.status === 'Accept Lot' ? '—' : `${Number(o.defect_percent).toFixed(2)}%`}
+                      {Number(o.defect_percent).toFixed(2)}%
                     </div>
                     <div className="flex gap-1.5 mt-1 justify-end text-[10px]">
                       <span className="chip">C:{o.critical_qty}</span>
@@ -601,7 +605,8 @@ export default function History() {
                   <span className="chip text-[10px]">{fmtDate(o.order_date)}</span>
                   <span className={`chip text-[10px] ${
                     o.status === 'Reject' ? 'bg-error-container text-error' :
-                    'bg-primary-container text-on-primary-container'
+                    o.status === 'Accept Lot' ? 'bg-amber-100 text-amber-800' :
+                    'bg-emerald-100 text-emerald-700'
                   }`}>{o.status}</span>
                   {o.approved ? (
                     <span className="chip text-[10px] bg-primary-container text-on-primary-container">✓ Approved</span>
