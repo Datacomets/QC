@@ -1,7 +1,7 @@
 # Product Requirements Document (PRD)
 # QC Inspection — ระบบสุ่มตรวจคุณภาพ
 
-**Version:** 2.4.0
+**Version:** 2.4.1
 **Last Updated:** 22 พฤษภาคม 2026
 **Owner:** Comets Intertrade Co., Ltd.
 **Status:** Active (Production)
@@ -770,6 +770,15 @@
 
 ## 13. Release Notes
 
+### v2.4.1 — 22 พฤษภาคม 2026 (Documentation Revision)
+- **Work Instruction (WI-QC-001)** เพิ่มเอกสารปฏิบัติงานอย่างเป็นทางการ ภาษาไทย
+  - `docs/WORK_INSTRUCTION.md` — source (Thai)
+  - `docs/WORK_INSTRUCTION_TH.docx` — รุ่นเผยแพร่ พร้อม Screenshot ครบ 35 ภาพ embed ลง Word
+  - `docs/WORK_INSTRUCTION.docx` — รุ่น bilingual TH/EN (snapshot อ้างอิง ไม่อัปเดตต่อ)
+- **Screenshot library:** `docs/docs.screenshots.AppQC/` — 35 PNG ตามเลขหัวข้อ (5.1.1 ถึง 9.4.1)
+- เอกสารครอบคลุม: Document Control, Purpose, Scope, Definitions, Responsibilities, Login/Logout, Operator workflow (บันทึก QC), QC Admin (อนุมัติ + จัดการ master data + Reject Notify), System Admin (Users + Recipients), Email Notification flow, Records & Retention, Troubleshooting
+- ไม่มีการเปลี่ยน feature/DB schema
+
 ### v2.4.0 — 22 พฤษภาคม 2026
 - **Reject Email Notification** (major feature)
   - DB tables: `notification_recipients`, `notification_send_log` (patch-19, 20)
@@ -861,6 +870,10 @@
 - **Live URL:** https://web-mocha-three-44.vercel.app
 - **Supabase Project:** https://supabase.com/dashboard/project/ruknpxlnvxgpraxkktfi
 - **User Stories:** ดู [USER_STORIES.md](USER_STORIES.md)
+- **Work Instruction (WI-QC-001):**
+  - Source: [docs/WORK_INSTRUCTION.md](docs/WORK_INSTRUCTION.md)
+  - เผยแพร่ภาษาไทย พร้อม Screenshot: [docs/WORK_INSTRUCTION_TH.docx](docs/WORK_INSTRUCTION_TH.docx)
+  - รุ่น Bilingual TH/EN (snapshot): [docs/WORK_INSTRUCTION.docx](docs/WORK_INSTRUCTION.docx)
 
 ---
 

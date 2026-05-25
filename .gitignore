@@ -19,3 +19,5 @@ Sup/
 users-passwords*.csv
 users-passwords*.xlsx
 *-passwords.*
+# Ignore Windows system files
+desktop.ini
