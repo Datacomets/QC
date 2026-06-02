@@ -5,7 +5,9 @@ import { useAuth } from '../lib/auth';
 import { sapBreakdownLabel } from '../lib/utils';
 
 type Rank = 'Critical' | 'Major' | 'Minor';
-interface DetailRow { defect_code: string; symptom: string; critical_rank: Rank; quantity: number; existingImages: string[]; newImages: { file: File; preview: string }[]; }
+interface DetailRow { defect_code: string; symptom: string; critical_rank: Rank; quantity: number; unit: string; existingImages: string[]; newImages: { file: File; preview: string }[]; }
+
+const DEFECT_UNITS = ['ชิ้น', 'อัน', 'แท่ง', 'ตลับ'];
 
 export default function QCEdit() {
   const { orderId } = useParams<{ orderId: string }>();
@@ -78,13 +80,14 @@ export default function QCEdit() {
       setStatus(['Accept', 'Accept Lot', 'Reject'].includes(order.status) ? order.status : '');
 
       const { data: dets } = await supabase.from('qc_order_details')
-        .select('defect_code,symptom,critical_rank,quantity,images')
+        .select('defect_code,symptom,critical_rank,quantity,unit,images')
         .eq('order_id', +orderId).order('id');
       setDetails((dets || []).map((d: any) => ({
         defect_code: d.defect_code || '',
         symptom: d.symptom || '',
         critical_rank: d.critical_rank as Rank,
         quantity: d.quantity,
+        unit: d.unit || '',
         existingImages: d.images || [],
         newImages: []
       })));
@@ -119,7 +122,7 @@ export default function QCEdit() {
     setDetails([...details, {
       defect_code: staging.map(s => s.code).join(', '),
       symptom: staging.map(s => s.symptom).join(', '),
-      critical_rank: 'Minor', quantity: 1, existingImages: [], newImages: []
+      critical_rank: 'Minor', quantity: 1, unit: 'ชิ้น', existingImages: [], newImages: []
     }]);
     setStaging([]); setDefectQuery('');
   };
@@ -191,6 +194,7 @@ export default function QCEdit() {
           order_id: +orderId!,
           defect_code: d.defect_code, symptom: d.symptom,
           critical_rank: d.critical_rank, quantity: +d.quantity,
+          unit: (d.unit && d.unit !== '__custom__' ? d.unit.trim() : '') || null,
           images: imageUrls
         });
       }
@@ -353,7 +357,7 @@ export default function QCEdit() {
             {details.map((d, i) => (
               <div key={i} className="bg-surface-lowest rounded-md p-4 space-y-3">
                 <div className="grid grid-cols-12 gap-3 items-start">
-                  <div className="col-span-5">
+                  <div className="col-span-4">
                     <div className="font-mono text-xs text-on-surface-variant">{d.defect_code}</div>
                     <div className="text-sm">{d.symptom}</div>
                   </div>
@@ -369,8 +373,22 @@ export default function QCEdit() {
                     <input type="number" min="0" className="field-input text-sm text-right"
                       value={d.quantity} onChange={e => updDetail(i, { quantity: +e.target.value })} />
                   </div>
+                  <div className="col-span-2 space-y-1">
+                    <select className="field-select text-sm"
+                      value={DEFECT_UNITS.includes(d.unit) || d.unit === '' ? d.unit : '__custom__'}
+                      onChange={e => updDetail(i, { unit: e.target.value })}>
+                      <option value="">— เลือก —</option>
+                      {DEFECT_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                      <option value="__custom__">อื่นๆ</option>
+                    </select>
+                    {(d.unit === '__custom__' || (d.unit !== '' && !DEFECT_UNITS.includes(d.unit))) && (
+                      <input className="field-input text-sm" placeholder="หรือพิมพ์เอง"
+                        value={d.unit === '__custom__' ? '' : d.unit}
+                        onChange={e => updDetail(i, { unit: e.target.value })} autoFocus />
+                    )}
+                  </div>
                   <button type="button" onClick={() => rmDetail(i)}
-                    className="col-span-2 text-xs text-error hover:underline text-right pt-2">ลบ</button>
+                    className="col-span-1 text-xs text-error hover:underline text-right pt-2">ลบ</button>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                   {d.existingImages.map((url, j) => (

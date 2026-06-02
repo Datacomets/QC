@@ -65,6 +65,7 @@ interface Detail {
   symptom: string;
   critical_rank: string;
   quantity: number;
+  unit: string | null;
   images: string[];
 }
 
@@ -220,7 +221,7 @@ export default function History() {
     setNcrModalDetails([]);
     setNcrModalDetailsLoading(true);
     const { data } = await supabase.from('qc_order_details')
-      .select('id,defect_code,symptom,critical_rank,quantity,images')
+      .select('id,defect_code,symptom,critical_rank,quantity,unit,images')
       .eq('order_id', n.order_id).order('id');
     setNcrModalDetails((data as Detail[]) || []);
     setNcrModalDetailsLoading(false);
@@ -236,7 +237,7 @@ export default function History() {
     setNcrPdfLoading(true);
     setNcrPdfDetails([]);
     const { data } = await supabase.from('qc_order_details')
-      .select('id,defect_code,symptom,critical_rank,quantity,images')
+      .select('id,defect_code,symptom,critical_rank,quantity,unit,images')
       .eq('order_id', n.order_id).order('id');
     setNcrPdfDetails((data as Detail[]) || []);
     setNcrPdfLoading(false);
@@ -259,7 +260,7 @@ export default function History() {
     setEditLogs([]);
     const [detailsRes, logsRes] = await Promise.all([
       supabase.from('qc_order_details')
-        .select('id,defect_code,symptom,critical_rank,quantity,images')
+        .select('id,defect_code,symptom,critical_rank,quantity,unit,images')
         .eq('order_id', orderId).order('id'),
       supabase.from('qc_order_edit_log')
         .select('id,edit_reason,edited_by,edited_at')
@@ -343,7 +344,7 @@ export default function History() {
     setPdfCreatorName(null);
 
     const detailsP = supabase.from('qc_order_details')
-      .select('id,defect_code,symptom,critical_rank,quantity,images')
+      .select('id,defect_code,symptom,critical_rank,quantity,unit,images')
       .eq('order_id', o.id).order('id');
     const creatorP = o.created_by
       ? supabase.from('profiles').select('full_name').eq('id', o.created_by).single()
@@ -641,7 +642,7 @@ export default function History() {
                   <InfoField label="ผู้จัดจำหน่าย / Supplier" value={o.supplier_name} />
                   <InfoField label="จำนวนรับ / Received Qty" value={o.received_qty != null ? String(o.received_qty) : null} />
                   <InfoField label="จำนวนตรวจสอบ / Sample Size" value={String(o.sample_size)} />
-                  <InfoField label="เอกสารต้นฉบับ / Original Documents" value={o.original_doc_with} />
+                  <InfoField label="สถานะเอกสาร" value={o.original_doc_with} />
                   <InfoField label="ผู้บันทึก / Recorded By" value={profilesMap[o.created_by || ''] || null} />
                 </div>
                 {o.note && (
@@ -708,7 +709,7 @@ export default function History() {
                                   d.critical_rank === 'Major' ? 'bg-amber-100 text-amber-800' :
                                   'bg-surface-highest text-on-surface-variant'
                                 }`}>{d.critical_rank}</span>
-                                <span className="chip chip-active text-[10px]">x{d.quantity}</span>
+                                <span className="chip chip-active text-[10px]">x{d.quantity}{d.unit ? ` ${d.unit}` : ''}</span>
                               </div>
                             </div>
                             {d.images && d.images.length > 0 && (
@@ -1044,7 +1045,7 @@ export default function History() {
                                 d.critical_rank === 'Major' ? 'bg-amber-100 text-amber-800' :
                                 'bg-surface-highest text-on-surface-variant'
                               }`}>{d.critical_rank}</span>
-                              <span className="chip chip-active text-[10px]">x{d.quantity}</span>
+                              <span className="chip chip-active text-[10px]">x{d.quantity}{d.unit ? ` ${d.unit}` : ''}</span>
                             </div>
                           </div>
                           {d.images && d.images.length > 0 && (

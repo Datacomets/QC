@@ -10,8 +10,11 @@ interface DraftDefect {
   defects: { code: string; symptom: string }[];
   critical_rank: Rank;
   quantity: number;
+  unit: string;
   images: { file: File; preview: string }[];
 }
+
+const DEFECT_UNITS = ['ชิ้น', 'อัน', 'แท่ง', 'ตลับ'];
 
 interface OrderDraft {
   order_date: string;                     // วันที่ตรวจ / Inspection Date (required)
@@ -243,6 +246,7 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
           symptom: combinedSymptom,
           critical_rank: d.critical_rank,
           quantity: Number(d.quantity),
+          unit: (d.unit && d.unit !== '__custom__' ? d.unit.trim() : '') || null,
           images: imageUrls
         });
       }
@@ -406,7 +410,7 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="field-label">เอกสารต้นฉบับ / Original Documents</label>
+              <label className="field-label">สถานะเอกสาร</label>
               <select className="field-select"
                 value={originalDocChoice}
                 onChange={e => {
@@ -465,7 +469,7 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
                       <button type="button" onClick={() => rmDetail(i)}
                         className="text-xs text-error hover:underline shrink-0">ลบ / Del</button>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                       <div>
                         <label className="text-[10px] uppercase tracking-wide text-on-surface-variant">Rank</label>
                         <select className="field-select text-sm" value={d.critical_rank}
@@ -480,6 +484,21 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
                         <input type="number" min="0" className="field-input text-sm text-right"
                           value={d.quantity}
                           onChange={e => updDetail(i, { quantity: Math.max(0, Number(e.target.value) || 0) })} />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] uppercase tracking-wide text-on-surface-variant">หน่วย / Unit</label>
+                        <select className="field-select text-sm"
+                          value={DEFECT_UNITS.includes(d.unit || '') || !d.unit ? (d.unit || '') : '__custom__'}
+                          onChange={e => updDetail(i, { unit: e.target.value })}>
+                          <option value="">— เลือก —</option>
+                          {DEFECT_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                          <option value="__custom__">อื่นๆ</option>
+                        </select>
+                        {(d.unit === '__custom__' || (!!d.unit && !DEFECT_UNITS.includes(d.unit))) && (
+                          <input className="field-input text-sm" placeholder="หรือพิมพ์เอง"
+                            value={d.unit === '__custom__' ? '' : d.unit}
+                            onChange={e => updDetail(i, { unit: e.target.value })} autoFocus />
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">

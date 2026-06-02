@@ -42,6 +42,7 @@ interface DefectDetail {
   symptom: string;
   critical_rank: string;
   quantity: number;
+  unit: string | null;
   images: string[];
 }
 
@@ -151,7 +152,7 @@ const NcrReport = forwardRef<HTMLDivElement, Props>(function NcrReport({ ncr, or
                   <div><b>Code:</b> <span style={{ fontFamily: 'monospace' }}>{d.defect_code}</span></div>
                   <div><b>Symptom:</b> {d.symptom}</div>
                   <div><b>Rank:</b> {d.critical_rank}</div>
-                  <div style={{ textAlign: 'right' }}><b>Qty:</b> {d.quantity}</div>
+                  <div style={{ textAlign: 'right' }}><b>Qty:</b> {d.quantity}{d.unit ? ` ${d.unit}` : ''}</div>
                 </div>
                 {d.images && d.images.length > 0 && (
                   <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>

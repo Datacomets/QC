@@ -44,6 +44,7 @@ interface DetailRow {
   symptom: string | null;
   critical_rank: string;
   quantity: number;
+  unit: string | null;
 }
 
 function fmtDate(s: string | null | undefined) {
@@ -67,7 +68,7 @@ function buildEmail(order: OrderRow, details: DetailRow[], ncrNo: string | null)
       <td style="padding:6px 10px;border:1px solid #d1d5db;font-family:monospace;font-size:11px">${escapeHtml(d.defect_code)}</td>
       <td style="padding:6px 10px;border:1px solid #d1d5db;font-size:12px">${escapeHtml(d.symptom)}</td>
       <td style="padding:6px 10px;border:1px solid #d1d5db;font-size:12px;text-align:center">${escapeHtml(d.critical_rank)}</td>
-      <td style="padding:6px 10px;border:1px solid #d1d5db;font-size:12px;text-align:right">${d.quantity}</td>
+      <td style="padding:6px 10px;border:1px solid #d1d5db;font-size:12px;text-align:right">${d.quantity}${d.unit ? ' ' + escapeHtml(d.unit) : ''}</td>
     </tr>
   `).join('');
 
@@ -147,7 +148,7 @@ Lot: ${order.lot_no || '—'}
 % ของเสีย: ${Number(order.defect_percent).toFixed(2)}%  (ตรวจ ${order.sample_size} · เสีย ${order.defect_qty})
 
 รายการของเสีย:
-${details.map(d => `• ${d.defect_code}: ${d.symptom} — ${d.critical_rank} x ${d.quantity}`).join('\n') || '(ไม่มี)'}
+${details.map(d => `• ${d.defect_code}: ${d.symptom} — ${d.critical_rank} x ${d.quantity}${d.unit ? ' ' + d.unit : ''}`).join('\n') || '(ไม่มี)'}
 
 ${order.note ? `หมายเหตุ: ${order.note}\n\n` : ''}ดูรายละเอียด: ${APP_URL}/
 `;
@@ -209,7 +210,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Load defect details
   const { data: details } = await admin
     .from('qc_order_details')
-    .select('defect_code,symptom,critical_rank,quantity')
+    .select('defect_code,symptom,critical_rank,quantity,unit')
     .eq('order_id', orderId)
     .order('id');
 

@@ -10,7 +10,9 @@ interface Supplier { sup_code: string; supplier_name: string; sup_sap_code: stri
 interface Defect { defect_code: string; symptom: string; reason: string | null; }
 interface DefectItem { code: string; symptom: string; }
 interface ImageFile { file: File; preview: string; }
-interface DetailRow { defects: DefectItem[]; critical_rank: Rank; quantity: number; images: ImageFile[]; }
+interface DetailRow { defects: DefectItem[]; critical_rank: Rank; quantity: number; unit: string; images: ImageFile[]; }
+
+const DEFECT_UNITS = ['ชิ้น', 'อัน', 'แท่ง', 'ตลับ'];
 
 export default function QCEntry() {
   const { profile } = useAuth();
@@ -38,6 +40,10 @@ export default function QCEntry() {
   const [defects, setDefects] = useState<Defect[]>([]);
   const [defectQuery, setDefectQuery] = useState('');
   const [staging, setStaging] = useState<DefectItem[]>([]);
+
+  // Supplier searchable combobox
+  const [supplierQuery, setSupplierQuery] = useState('');
+  const [supplierOpen, setSupplierOpen] = useState(false);
 
   const [msg, setMsg] = useState('');
   const [draft, setDraft] = useState<OrderDraft | null>(null);
@@ -114,6 +120,30 @@ export default function QCEntry() {
 
   const pass = totals.pct === 0 && details.length === 0 ? null : totals.pct < 1.0; // placeholder threshold
 
+  // Supplier search — grouped by Import / Local / Other, filtered by sup_code/sap_code/name
+  const supplierLabel = (s: Supplier) => {
+    const hasReal = s.sup_code && s.sup_sap_code && s.sup_code !== s.sup_sap_code;
+    return hasReal ? `${s.sup_code} (${s.sup_sap_code})` : (s.sup_sap_code || s.sup_code);
+  };
+  const filteredSupplierGroups = useMemo(() => {
+    const q = supplierQuery.toLowerCase().trim();
+    const match = (s: Supplier) => !q
+      || s.sup_code.toLowerCase().includes(q)
+      || (s.sup_sap_code || '').toLowerCase().includes(q)
+      || (s.supplier_name || '').toLowerCase().includes(q);
+    const imp = suppliers.filter(s => (s.purchase || '').toLowerCase() === 'import' && match(s));
+    const loc = suppliers.filter(s => (s.purchase || '').toLowerCase() === 'local' && match(s));
+    const oth = suppliers.filter(s => {
+      const p = (s.purchase || '').toLowerCase();
+      return p !== 'import' && p !== 'local' && match(s);
+    });
+    const groups: { label: string; items: Supplier[] }[] = [];
+    if (imp.length) groups.push({ label: 'Import', items: imp });
+    if (loc.length) groups.push({ label: 'Local', items: loc });
+    if (oth.length) groups.push({ label: 'อื่น ๆ / Other', items: oth });
+    return groups;
+  }, [supplierQuery, suppliers]);
+
   const filteredDefects = useMemo(() => {
     const q = defectQuery.toLowerCase().trim();
     if (!q) return defects.slice(0, 20);
@@ -132,7 +162,7 @@ export default function QCEntry() {
 
   const addGroup = () => {
     if (staging.length === 0) return;
-    setDetails([...details, { defects: staging, critical_rank: 'Minor', quantity: 1, images: [] }]);
+    setDetails([...details, { defects: staging, critical_rank: 'Minor', quantity: 1, unit: 'ชิ้น', images: [] }]);
     setStaging([]);
     setDefectQuery('');
   };
@@ -199,6 +229,7 @@ export default function QCEntry() {
         defects: d.defects,
         critical_rank: d.critical_rank,
         quantity: d.quantity,
+        unit: d.unit === '__custom__' ? '' : d.unit,
         images: d.images
       })),
       created_by: profile.id
@@ -280,71 +311,58 @@ export default function QCEntry() {
         {(() => {
           const p = parseSapCode(sapCode);
           return <>
-            <Display label="ประเภท / Item Type"          value={p.itemType || null} />
-            <Display label="ที่มา / Item Source"          value={p.itemSource || null} />
-            <Display label="หมวด SAP / Item Category"     value={p.itemCategory || null} />
-            <Display label="กลุ่ม SAP / Item Group"       value={p.itemGroup || null} />
-            <Display label="กลุ่มย่อย / Sub-Item Group"   value={p.subItemGroup || null} />
-            <Display label="Running No"                   value={p.runningNo || null} />
-            <Display label="Revision"                     value={p.revision || null} />
+            <Display label="ประเภทของ Item"   value={p.itemType || null} />
+            <Display label="ที่มาของ Item"     value={p.itemSource || null} />
+            <Display label="Item-Category"    value={p.itemCategory || null} />
+            <Display label="Item Group"       value={p.itemGroup || null} />
+            <Display label="Sub-Item Group"   value={p.subItemGroup || null} />
           </>;
         })()}
-        <Display label="กลุ่มสินค้า (Master) / Product Category" value={material?.product_category} />
         <Display label="แบรนด์ / Brand" value={material?.brand} />
         <Display label="ฝ่ายขาย / Sales" value={salesVal || null} />
         <Display label="SCM" value={scmVal || null} />
 
-        <div className="md:col-span-3">
+        <div className="md:col-span-3 relative">
           <label className="field-label">รหัสผู้จัดจำหน่าย / Sup Code</label>
-          <select className="field-select"
-            value={supplier?.sup_code || ''}
-            onChange={e => {
-              const code = e.target.value;
-              if (!code) { setSupplier(null); setSupSapCode(''); return; }
-              const s = suppliers.find(x => x.sup_code === code) || null;
-              setSupplier(s);
-              setSupSapCode(s?.sup_sap_code || '');
-            }}>
-            <option value="">— เลือก / Select —</option>
-            {(['Import', 'Local'] as const).map(grp => {
-              const list = suppliers.filter(s => (s.purchase || '').toLowerCase() === grp.toLowerCase());
-              if (list.length === 0) return null;
-              return (
-                <optgroup key={grp} label={`━━━ ${grp} (${list.length}) ━━━`}>
-                  {list.map(s => {
-                    const hasRealSup = s.sup_code && s.sup_sap_code && s.sup_code !== s.sup_sap_code;
-                    return (
-                      <option key={s.sup_code} value={s.sup_code}>
-                        {hasRealSup ? `${s.sup_code} (${s.sup_sap_code})` : (s.sup_sap_code || s.sup_code)}
-                      </option>
-                    );
-                  })}
-                </optgroup>
-              );
-            })}
-            {(() => {
-              const others = suppliers.filter(s => {
-                const p = (s.purchase || '').toLowerCase();
-                return p !== 'import' && p !== 'local';
-              });
-              if (others.length === 0) return null;
-              return (
-                <optgroup label={`━━━ อื่น ๆ / Other (${others.length}) ━━━`}>
-                  {others.map(s => {
-                    const hasRealSup = s.sup_code && s.sup_sap_code && s.sup_code !== s.sup_sap_code;
-                    return (
-                      <option key={s.sup_code} value={s.sup_code}>
-                        {hasRealSup ? `${s.sup_code} (${s.sup_sap_code})` : (s.sup_sap_code || s.sup_code)}
-                      </option>
-                    );
-                  })}
-                </optgroup>
-              );
-            })()}
-          </select>
-          {supplier?.supplier_name && (
-            <div className="text-xs text-slate-500 mt-1">
-              ผู้จัดจำหน่าย / Supplier: <span className="font-medium text-slate-700">{supplier.supplier_name}</span>
+          <div className="flex gap-2">
+            <input className="field-input flex-1"
+              placeholder="ค้นหา / Search รหัส, SAP..."
+              value={supplierOpen ? supplierQuery : (supplier ? supplierLabel(supplier) : '')}
+              onChange={e => { setSupplierQuery(e.target.value); setSupplierOpen(true); }}
+              onFocus={() => { setSupplierQuery(''); setSupplierOpen(true); }}
+              onBlur={() => setTimeout(() => setSupplierOpen(false), 150)}
+              onKeyDown={e => { if (e.key === 'Escape') { setSupplierOpen(false); (e.target as HTMLInputElement).blur(); } }} />
+            {supplier && (
+              <button type="button"
+                onClick={() => { setSupplier(null); setSupSapCode(''); setSupplierQuery(''); }}
+                className="px-3 text-sm text-on-surface-variant hover:text-error border border-outline-variant rounded-md"
+                title="ล้าง / Clear">×</button>
+            )}
+          </div>
+          {supplierOpen && (
+            <div className="absolute z-30 mt-1 left-0 right-0 bg-surface-lowest border border-outline-variant rounded-md shadow-ambient max-h-72 overflow-auto">
+              {filteredSupplierGroups.length === 0 ? (
+                <div className="px-3 py-3 text-sm text-on-surface-variant">ไม่พบ Supplier / No match</div>
+              ) : filteredSupplierGroups.map(g => (
+                <div key={g.label}>
+                  <div className="px-3 py-1 text-[10px] uppercase tracking-wide font-semibold text-on-surface-variant bg-surface-mid sticky top-0">
+                    {g.label} ({g.items.length})
+                  </div>
+                  {g.items.map(s => (
+                    <button key={s.sup_code} type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setSupplier(s);
+                        setSupSapCode(s.sup_sap_code || '');
+                        setSupplierOpen(false);
+                        setSupplierQuery('');
+                      }}
+                      className="w-full text-left px-3 py-2 hover:bg-primary/10 border-b border-outline-variant/20 last:border-b-0">
+                      <div className="font-mono text-xs text-on-surface">{supplierLabel(s)}</div>
+                    </button>
+                  ))}
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -443,7 +461,7 @@ export default function QCEntry() {
             {details.map((d, i) => (
               <div key={i} className="bg-surface-lowest rounded-md p-4 space-y-3">
                 <div className="grid grid-cols-12 gap-3 items-start">
-                  <div className="col-span-5">
+                  <div className="col-span-4">
                     <div className="font-mono text-xs text-on-surface-variant">
                       {d.defects.map(x => x.code).join(', ')}
                     </div>
@@ -463,8 +481,22 @@ export default function QCEntry() {
                     <input type="number" min="0" className="field-input text-sm text-right"
                       value={d.quantity} onChange={e => updDetail(i, { quantity: +e.target.value })} />
                   </div>
+                  <div className="col-span-2 space-y-1">
+                    <select className="field-select text-sm"
+                      value={DEFECT_UNITS.includes(d.unit) || d.unit === '' ? d.unit : '__custom__'}
+                      onChange={e => updDetail(i, { unit: e.target.value })}>
+                      <option value="">— เลือก —</option>
+                      {DEFECT_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                      <option value="__custom__">อื่นๆ</option>
+                    </select>
+                    {(d.unit === '__custom__' || (d.unit !== '' && !DEFECT_UNITS.includes(d.unit))) && (
+                      <input className="field-input text-sm" placeholder="หรือพิมพ์เอง"
+                        value={d.unit === '__custom__' ? '' : d.unit}
+                        onChange={e => updDetail(i, { unit: e.target.value })} autoFocus />
+                    )}
+                  </div>
                   <button type="button" onClick={() => rmDetail(i)}
-                    className="col-span-2 text-xs text-error hover:underline text-right pt-2">ลบ / Del</button>
+                    className="col-span-1 text-xs text-error hover:underline text-right pt-2">ลบ</button>
                 </div>
                 {/* Image upload 1-3 */}
                 <div className="flex items-center gap-2 flex-wrap">
@@ -501,7 +533,7 @@ export default function QCEntry() {
       <section className="section space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="field-label">เอกสารต้นฉบับ / Original Documents</label>
+            <label className="field-label">สถานะเอกสาร</label>
             <select className="field-select"
               value={originalDocChoice}
               onChange={e => {
