@@ -30,6 +30,7 @@ export default function QCEdit() {
   const [scm, setScm] = useState('');
   const [supCode, setSupCode] = useState('');
   const [supplierName, setSupplierName] = useState('');
+  const [supplierPurchase, setSupplierPurchase] = useState('');     // 'Import' / 'Local' / etc.
   const [lotNo, setLotNo] = useState('');
   const [receivedQty, setReceivedQty] = useState<number | ''>('');
   const [sampleSize, setSampleSize] = useState<number | ''>('');
@@ -77,6 +78,13 @@ export default function QCEdit() {
       setScm(order.scm || '');
       setSupCode(order.sup_code || '');
       setSupplierName(order.supplier_name || '');
+      if (order.sup_code) {
+        const { data: sup } = await supabase.from('suppliers')
+          .select('purchase').eq('sup_code', order.sup_code).maybeSingle();
+        setSupplierPurchase(sup?.purchase || '');
+      } else {
+        setSupplierPurchase('');
+      }
       setLotNo(order.lot_no || '');
       setReceivedQty(order.received_qty ?? '');
       setSampleSize(order.sample_size);
@@ -158,8 +166,13 @@ export default function QCEdit() {
     if (!sample) { setMsg('กรุณากรอกจำนวนตรวจสอบ'); setSaving(false); return; }
     if (!status) { setMsg('กรุณาเลือกผลตรวจ / Please select inspection result'); setSaving(false); return; }
 
-    const resolvedPcm = pcmChoice === '__custom__' ? (pcmCustom.trim() || null) : (pcmChoice || null);
-    const resolvedPur = purChoice === '__custom__' ? (purCustom.trim() || null) : (purChoice || null);
+    const kind = (supplierPurchase || '').toLowerCase();
+    const resolvedPcm = kind === 'import'
+      ? (pcmChoice === '__custom__' ? (pcmCustom.trim() || null) : (pcmChoice || null))
+      : null;
+    const resolvedPur = kind === 'local'
+      ? (purChoice === '__custom__' ? (purCustom.trim() || null) : (purChoice || null))
+      : null;
 
     // Build update payload
     const updateRow: Record<string, unknown> = {
@@ -439,38 +452,50 @@ export default function QCEdit() {
       </section>
 
       <section className="section space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="field-label">PCM</label>
-            <select className="field-select"
-              value={pcmChoice}
-              onChange={e => { setPcmChoice(e.target.value); if (e.target.value !== '__custom__') setPcmCustom(''); }}>
-              <option value="">— เลือก / Select —</option>
-              {PCM_LIST.map(n => <option key={n} value={n}>{n}</option>)}
-              <option value="__custom__">+ อื่นๆ (พิมพ์เอง)</option>
-            </select>
-            {pcmChoice === '__custom__' && (
-              <input className="field-input mt-2" autoFocus
-                value={pcmCustom} onChange={e => setPcmCustom(e.target.value)}
-                placeholder="พิมพ์ชื่อ PCM" />
-            )}
-          </div>
-          <div>
-            <label className="field-label">PUR</label>
-            <select className="field-select"
-              value={purChoice}
-              onChange={e => { setPurChoice(e.target.value); if (e.target.value !== '__custom__') setPurCustom(''); }}>
-              <option value="">— เลือก / Select —</option>
-              {PUR_LIST.map(n => <option key={n} value={n}>{n}</option>)}
-              <option value="__custom__">+ อื่นๆ (พิมพ์เอง)</option>
-            </select>
-            {purChoice === '__custom__' && (
-              <input className="field-input mt-2" autoFocus
-                value={purCustom} onChange={e => setPurCustom(e.target.value)}
-                placeholder="พิมพ์ชื่อ PUR" />
-            )}
-          </div>
-        </div>
+        {(() => {
+          const kind = (supplierPurchase || '').toLowerCase();
+          const showPcm = kind === 'import';
+          const showPur = kind === 'local';
+          if (!showPcm && !showPur) return null;
+          return (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {showPcm && (
+                <div>
+                  <label className="field-label">PCM</label>
+                  <select className="field-select"
+                    value={pcmChoice}
+                    onChange={e => { setPcmChoice(e.target.value); if (e.target.value !== '__custom__') setPcmCustom(''); }}>
+                    <option value="">— เลือก / Select —</option>
+                    {PCM_LIST.map(n => <option key={n} value={n}>{n}</option>)}
+                    <option value="__custom__">+ อื่นๆ (พิมพ์เอง)</option>
+                  </select>
+                  {pcmChoice === '__custom__' && (
+                    <input className="field-input mt-2" autoFocus
+                      value={pcmCustom} onChange={e => setPcmCustom(e.target.value)}
+                      placeholder="พิมพ์ชื่อ PCM" />
+                  )}
+                </div>
+              )}
+              {showPur && (
+                <div>
+                  <label className="field-label">PUR</label>
+                  <select className="field-select"
+                    value={purChoice}
+                    onChange={e => { setPurChoice(e.target.value); if (e.target.value !== '__custom__') setPurCustom(''); }}>
+                    <option value="">— เลือก / Select —</option>
+                    {PUR_LIST.map(n => <option key={n} value={n}>{n}</option>)}
+                    <option value="__custom__">+ อื่นๆ (พิมพ์เอง)</option>
+                  </select>
+                  {purChoice === '__custom__' && (
+                    <input className="field-input mt-2" autoFocus
+                      value={purCustom} onChange={e => setPurCustom(e.target.value)}
+                      placeholder="พิมพ์ชื่อ PUR" />
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
         <div>
           <label className="field-label">หมายเหตุ / Remarks</label>
           <textarea rows={3} className="field-input" value={note} onChange={e => setNote(e.target.value)} />

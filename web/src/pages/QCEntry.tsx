@@ -124,6 +124,11 @@ export default function QCEntry() {
 
   const pass = totals.pct === 0 && details.length === 0 ? null : totals.pct < 1.0; // placeholder threshold
 
+  // Supplier kind drives PCM vs PUR visibility: Import → PCM only, Local → PUR only
+  const supplierKind = (supplier?.purchase || '').toLowerCase();
+  const showPcm = supplierKind === 'import';
+  const showPur = supplierKind === 'local';
+
   // Supplier search — grouped by Import / Local / Other, filtered by sup_code/sap_code/name
   const supplierLabel = (s: Supplier) => {
     const hasReal = s.sup_code && s.sup_sap_code && s.sup_code !== s.sup_sap_code;
@@ -210,13 +215,13 @@ export default function QCEntry() {
       ? (originalDocCustom.trim() || null)
       : (originalDocChoice || null);
 
-    const pcmVal = pcmChoice === '__custom__'
-      ? (pcmCustom.trim() || null)
-      : (pcmChoice || null);
+    const pcmVal = showPcm
+      ? (pcmChoice === '__custom__' ? (pcmCustom.trim() || null) : (pcmChoice || null))
+      : null;
 
-    const purVal = purChoice === '__custom__'
-      ? (purCustom.trim() || null)
-      : (purChoice || null);
+    const purVal = showPur
+      ? (purChoice === '__custom__' ? (purCustom.trim() || null) : (purChoice || null))
+      : null;
 
     setDraft({
       order_date: orderDate,
@@ -234,6 +239,7 @@ export default function QCEntry() {
       scm: scmVal || null,
       sup_code: supplier?.sup_code || null,
       supplier_name: supplier?.supplier_name || null,
+      supplier_purchase: supplier?.purchase || null,
       lot_no: lotNo.trim() || null,
       received_qty: receivedQty === '' ? null : +receivedQty,
       sample_size: sample,
@@ -337,37 +343,6 @@ export default function QCEntry() {
         <Display label="ฝ่ายขาย / Sales" value={salesVal || null} />
         <Display label="SCM" value={scmVal || null} />
 
-        <div>
-          <label className="field-label">PCM</label>
-          <select className="field-select"
-            value={pcmChoice}
-            onChange={e => { setPcmChoice(e.target.value); if (e.target.value !== '__custom__') setPcmCustom(''); }}>
-            <option value="">— เลือก / Select —</option>
-            {PCM_LIST.map(n => <option key={n} value={n}>{n}</option>)}
-            <option value="__custom__">+ อื่นๆ (พิมพ์เอง)</option>
-          </select>
-          {pcmChoice === '__custom__' && (
-            <input className="field-input mt-2" autoFocus
-              value={pcmCustom} onChange={e => setPcmCustom(e.target.value)}
-              placeholder="พิมพ์ชื่อ PCM" />
-          )}
-        </div>
-        <div>
-          <label className="field-label">PUR</label>
-          <select className="field-select"
-            value={purChoice}
-            onChange={e => { setPurChoice(e.target.value); if (e.target.value !== '__custom__') setPurCustom(''); }}>
-            <option value="">— เลือก / Select —</option>
-            {PUR_LIST.map(n => <option key={n} value={n}>{n}</option>)}
-            <option value="__custom__">+ อื่นๆ (พิมพ์เอง)</option>
-          </select>
-          {purChoice === '__custom__' && (
-            <input className="field-input mt-2" autoFocus
-              value={purCustom} onChange={e => setPurCustom(e.target.value)}
-              placeholder="พิมพ์ชื่อ PUR" />
-          )}
-        </div>
-
         <div className="md:col-span-3 relative">
           <label className="field-label">รหัสผู้จัดจำหน่าย / Sup Code</label>
           <div className="flex gap-2">
@@ -380,7 +355,10 @@ export default function QCEntry() {
               onKeyDown={e => { if (e.key === 'Escape') { setSupplierOpen(false); (e.target as HTMLInputElement).blur(); } }} />
             {supplier && (
               <button type="button"
-                onClick={() => { setSupplier(null); setSupSapCode(''); setSupplierQuery(''); }}
+                onClick={() => {
+                  setSupplier(null); setSupSapCode(''); setSupplierQuery('');
+                  setPcmChoice(''); setPcmCustom(''); setPurChoice(''); setPurCustom('');
+                }}
                 className="px-3 text-sm text-on-surface-variant hover:text-error border border-outline-variant rounded-md"
                 title="ล้าง / Clear">×</button>
             )}
@@ -402,6 +380,10 @@ export default function QCEntry() {
                         setSupSapCode(s.sup_sap_code || '');
                         setSupplierOpen(false);
                         setSupplierQuery('');
+                        // Clear the field that no longer applies for this supplier kind
+                        const kind = (s.purchase || '').toLowerCase();
+                        if (kind !== 'import') { setPcmChoice(''); setPcmCustom(''); }
+                        if (kind !== 'local')  { setPurChoice(''); setPurCustom(''); }
                       }}
                       className="w-full text-left px-3 py-2 hover:bg-primary/10 border-b border-outline-variant/20 last:border-b-0">
                       <div className="font-mono text-xs text-on-surface">{supplierLabel(s)}</div>
@@ -412,6 +394,41 @@ export default function QCEntry() {
             </div>
           )}
         </div>
+
+        {showPcm && (
+          <div>
+            <label className="field-label">PCM</label>
+            <select className="field-select"
+              value={pcmChoice}
+              onChange={e => { setPcmChoice(e.target.value); if (e.target.value !== '__custom__') setPcmCustom(''); }}>
+              <option value="">— เลือก / Select —</option>
+              {PCM_LIST.map(n => <option key={n} value={n}>{n}</option>)}
+              <option value="__custom__">+ อื่นๆ (พิมพ์เอง)</option>
+            </select>
+            {pcmChoice === '__custom__' && (
+              <input className="field-input mt-2" autoFocus
+                value={pcmCustom} onChange={e => setPcmCustom(e.target.value)}
+                placeholder="พิมพ์ชื่อ PCM" />
+            )}
+          </div>
+        )}
+        {showPur && (
+          <div>
+            <label className="field-label">PUR</label>
+            <select className="field-select"
+              value={purChoice}
+              onChange={e => { setPurChoice(e.target.value); if (e.target.value !== '__custom__') setPurCustom(''); }}>
+              <option value="">— เลือก / Select —</option>
+              {PUR_LIST.map(n => <option key={n} value={n}>{n}</option>)}
+              <option value="__custom__">+ อื่นๆ (พิมพ์เอง)</option>
+            </select>
+            {purChoice === '__custom__' && (
+              <input className="field-input mt-2" autoFocus
+                value={purCustom} onChange={e => setPurCustom(e.target.value)}
+                placeholder="พิมพ์ชื่อ PUR" />
+            )}
+          </div>
+        )}
 
         <div>
           <label className="field-label">หมายเลข Lot / Lot No.</label>

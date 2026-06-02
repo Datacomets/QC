@@ -32,6 +32,7 @@ interface OrderDraft {
   scm: string | null;
   sup_code: string | null;
   supplier_name: string | null;
+  supplier_purchase: string | null;      // 'Import' / 'Local' / etc. — drives PCM vs PUR visibility
   lot_no: string | null;
   received_qty: number | null;
   sample_size: number;
@@ -123,12 +124,13 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
     ? approverCustom.trim().length > 0
     : !!approverChoice;
 
-  const resolvedPcm = pcmChoice === '__custom__'
-    ? (pcmCustom.trim() || null)
-    : (pcmChoice || null);
-  const resolvedPur = purChoice === '__custom__'
-    ? (purCustom.trim() || null)
-    : (purChoice || null);
+  const supplierKind = (draft.supplier_purchase || '').toLowerCase();
+  const resolvedPcm = supplierKind === 'import'
+    ? (pcmChoice === '__custom__' ? (pcmCustom.trim() || null) : (pcmChoice || null))
+    : null;
+  const resolvedPur = supplierKind === 'local'
+    ? (purChoice === '__custom__' ? (purCustom.trim() || null) : (purChoice || null))
+    : null;
 
   const resolvedOriginalDoc = originalDocChoice === '__custom__'
     ? (originalDocCustom.trim() || null)
@@ -438,46 +440,58 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
             } />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="field-label">PCM</label>
-              <select className="field-select"
-                value={pcmChoice}
-                onChange={e => {
-                  setPcmChoice(e.target.value);
-                  if (e.target.value !== '__custom__') setPcmCustom('');
-                }}>
-                <option value="">— เลือก / Select —</option>
-                {PCM_LIST.map(n => <option key={n} value={n}>{n}</option>)}
-                <option value="__custom__">+ อื่นๆ (พิมพ์เอง)</option>
-              </select>
-              {pcmChoice === '__custom__' && (
-                <input className="field-input mt-2" autoFocus
-                  value={pcmCustom}
-                  onChange={e => setPcmCustom(e.target.value)}
-                  placeholder="พิมพ์ชื่อ PCM" />
-              )}
-            </div>
-            <div>
-              <label className="field-label">PUR</label>
-              <select className="field-select"
-                value={purChoice}
-                onChange={e => {
-                  setPurChoice(e.target.value);
-                  if (e.target.value !== '__custom__') setPurCustom('');
-                }}>
-                <option value="">— เลือก / Select —</option>
-                {PUR_LIST.map(n => <option key={n} value={n}>{n}</option>)}
-                <option value="__custom__">+ อื่นๆ (พิมพ์เอง)</option>
-              </select>
-              {purChoice === '__custom__' && (
-                <input className="field-input mt-2" autoFocus
-                  value={purCustom}
-                  onChange={e => setPurCustom(e.target.value)}
-                  placeholder="พิมพ์ชื่อ PUR" />
-              )}
-            </div>
-          </div>
+          {(() => {
+            const kind = (draft.supplier_purchase || '').toLowerCase();
+            const showPcm = kind === 'import';
+            const showPur = kind === 'local';
+            if (!showPcm && !showPur) return null;
+            return (
+              <div className="grid grid-cols-2 gap-4">
+                {showPcm && (
+                  <div>
+                    <label className="field-label">PCM</label>
+                    <select className="field-select"
+                      value={pcmChoice}
+                      onChange={e => {
+                        setPcmChoice(e.target.value);
+                        if (e.target.value !== '__custom__') setPcmCustom('');
+                      }}>
+                      <option value="">— เลือก / Select —</option>
+                      {PCM_LIST.map(n => <option key={n} value={n}>{n}</option>)}
+                      <option value="__custom__">+ อื่นๆ (พิมพ์เอง)</option>
+                    </select>
+                    {pcmChoice === '__custom__' && (
+                      <input className="field-input mt-2" autoFocus
+                        value={pcmCustom}
+                        onChange={e => setPcmCustom(e.target.value)}
+                        placeholder="พิมพ์ชื่อ PCM" />
+                    )}
+                  </div>
+                )}
+                {showPur && (
+                  <div>
+                    <label className="field-label">PUR</label>
+                    <select className="field-select"
+                      value={purChoice}
+                      onChange={e => {
+                        setPurChoice(e.target.value);
+                        if (e.target.value !== '__custom__') setPurCustom('');
+                      }}>
+                      <option value="">— เลือก / Select —</option>
+                      {PUR_LIST.map(n => <option key={n} value={n}>{n}</option>)}
+                      <option value="__custom__">+ อื่นๆ (พิมพ์เอง)</option>
+                    </select>
+                    {purChoice === '__custom__' && (
+                      <input className="field-input mt-2" autoFocus
+                        value={purCustom}
+                        onChange={e => setPurCustom(e.target.value)}
+                        placeholder="พิมพ์ชื่อ PUR" />
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           <div className="grid grid-cols-2 gap-4">
             <div>
