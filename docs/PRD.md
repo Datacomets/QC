@@ -1,8 +1,8 @@
 # Product Requirements Document (PRD)
 # QC Inspection — ระบบสุ่มตรวจคุณภาพ
 
-**Version:** 2.4.1
-**Last Updated:** 22 พฤษภาคม 2026
+**Version:** 2.5.0
+**Last Updated:** 25 พฤษภาคม 2026
 **Owner:** Comets Intertrade Co., Ltd.
 **Status:** Active (Production)
 **Live URL:** https://web-mocha-three-44.vercel.app
@@ -493,6 +493,7 @@
 - `id` PK, `order_id` FK ON DELETE CASCADE
 - `defect_code`, `symptom`
 - `critical_rank`, `quantity`
+- `unit text` (v2.5 — patch-21, free-text หน่วยนับ: ชิ้น/อัน/แท่ง/ตลับ หรือ custom)
 - `images text[]`
 
 **`qc_order_edit_log`** (v2.3.1 — restored via patch-18)
@@ -769,6 +770,28 @@
 ---
 
 ## 13. Release Notes
+
+### v2.5.0 — 25 พฤษภาคม 2026
+- **Login by Employee ID** — รับค่า user เป็นรหัสพนักงาน (ไม่ต้องพิมพ์เต็ม email); ระบบเติม `@cometsintertrade.com` ให้อัตโนมัติเมื่อค่าไม่มี `@`. Label เปลี่ยน "อีเมล / Email" → "User".
+- **Defect unit field** — เพิ่มคอลัมน์ `qc_order_details.unit` (patch-21); UI dropdown ชิ้น/อัน/แท่ง/ตลับ + "อื่นๆ" → text input โผล่ตอน "อื่นๆ" ถูกเลือก. หน่วยถูกแสดงในตาราง History, NCR PDF, Order PDF, และ Reject email.
+- **Sup Code searchable combobox** — แทนที่ native `<select>` ด้วย custom combobox; พิมพ์ค้นหาด้วย sup_code / sap_code / supplier_name; ผลลัพธ์แบ่งกลุ่ม Import / Local / Other. ไม่แสดงชื่อ Supplier ใน dropdown และค่าที่เลือก.
+- **History UI polish**:
+  - Status-based color: Accept = emerald, Accept Lot = amber (แสดง % จริงแล้ว ไม่ใช่ "—"), Reject = error red.
+  - Card chip ใช้ชื่อเต็ม Critical/Major/Minor.
+  - Supplier name ถูกซ่อนทุกจุด (card, popup detail, NCR popup).
+  - InfoField รองรับ comma-only descriptions ด้วย `min-w-0` + `break-words` + `[overflow-wrap:anywhere]` แก้ปัญหาข้อความล้นเข้าเซลล์ถัดไป.
+- **Thousand separators** — `fmtNum()` helper ใหม่ใน utils.ts; ใส่ comma ทุกจุดที่แสดงตัวเลขจำนวน (Received Qty / Sample Size / Defect Qty / Critical-Major-Minor totals) ทั้งใน QC Entry, SuccessModal, History, NCR PDF, Order PDF, และ Reject email.
+- **Label refresh**:
+  - "เอกสารต้นฉบับ / Original Documents" → "สถานะเอกสาร"
+  - "ประเภท / Item Type" → "ประเภทของ Item"
+  - "ที่มา / Item Source" → "ที่มาของ Item"
+  - "หมวด SAP / Item Category" → "Item-Category"
+  - "กลุ่ม SAP / Item Group" → "Item Group"
+  - "กลุ่มย่อย / Sub-Item Group" → "Sub-Item Group"
+- **ลบฟิลด์ที่ไม่ใช้**: Running No, Revision, "กลุ่มสินค้า (Master) / Product Category" ออกจากหน้า QC Entry.
+- **Employee-ID accounts** — เพิ่ม 5 ผู้ใช้ที่ login ด้วยรหัสพนักงาน (10503, 11045, 11181, 11262, 11379) ผ่านสคริปต์ใหม่ `scripts/seed-users-batch.mjs` — รหัสผ่านสืบทอดจากบัญชี email เดิมของแต่ละคน.
+- **Vercel GitHub Integration** — Project `web` เชื่อมกับ `Datacomets/QC` (branch `main`, root `web/`); push ไปยัง `main` → auto build + deploy. Frontend env vars (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`) ตั้งใน Vercel Environment Variables.
+- DB patches: 21
 
 ### v2.4.1 — 22 พฤษภาคม 2026 (Documentation Revision)
 - **Work Instruction (WI-QC-001)** เพิ่มเอกสารปฏิบัติงานอย่างเป็นทางการ ภาษาไทย

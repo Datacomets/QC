@@ -67,11 +67,18 @@ export default function Materials() {
 
   const loadAll = async () => {
     setLoading(true);
-    const [matsRes, logRes] = await Promise.all([
-      supabase.from('materials').select('*').order('sap_code').limit(20000),
-      supabase.from('material_upload_log').select('*').order('uploaded_at', { ascending: false }).limit(1)
-    ]);
-    setMaterials((matsRes.data as Material[]) || []);
+    // Supabase / PostgREST has a default max-rows of 1000 per request — page through to fetch all
+    const all: Material[] = [];
+    const CHUNK = 1000;
+    for (let from = 0; ; from += CHUNK) {
+      const { data, error } = await supabase.from('materials')
+        .select('*').order('sap_code').range(from, from + CHUNK - 1);
+      if (error || !data || data.length === 0) break;
+      all.push(...(data as Material[]));
+      if (data.length < CHUNK) break;
+    }
+    const logRes = await supabase.from('material_upload_log').select('*').order('uploaded_at', { ascending: false }).limit(1);
+    setMaterials(all);
     setLastLog((logRes.data as UploadLog[])?.[0] || null);
     setLoading(false);
   };

@@ -1,7 +1,7 @@
 # User Stories — QC Inspection Web App
 
-**Version:** 2.4.0
-**Last Updated:** 22 พฤษภาคม 2026
+**Version:** 2.5.0
+**Last Updated:** 25 พฤษภาคม 2026
 **Companion to:** [PRD.md](PRD.md)
 
 ---
@@ -704,15 +704,137 @@ US-XX: As a [role], I want [action], so that [benefit]
 
 ---
 
+## Epic 15 — Login by Employee ID (v2.5.0)
+
+### US-1501: Login ด้วยรหัสพนักงาน
+**As a** ผู้ใช้, **I want to** กรอกแค่รหัสพนักงาน (เช่น `10503`) ใน Login **so that** ไม่ต้องจำ email ยาว ๆ
+
+**Acceptance Criteria:**
+- หน้า Login เปลี่ยน label "อีเมล / Email" → "User"
+- Input type = `text` (ไม่ใช่ `email`) — บังคับ `@` ไม่ได้แล้ว
+- Placeholder: "รหัสพนักงาน" (ไม่มีตัวอย่างเลข)
+- เมื่อ submit: ถ้าค่าไม่มี `@` → auto-append `@cometsintertrade.com` ก่อนส่ง supabase.auth.signInWithPassword
+- ถ้ากรอกเต็ม email เช่น `sls01@cometsintertrade.com` → ใช้ได้เหมือนเดิม (backward compat)
+
+### US-1502: บัญชี Employee-ID มี 5 ราย
+**As an** admin, **I want to** มีบัญชี 5 รายที่ login ด้วยรหัสพนักงาน
+
+**Accounts (initial seed via scripts/seed-users-batch.mjs):**
+- `10503@cometsintertrade.com` — ธิดารัตน์ จันทร์เดช (เบลล์) — qc_admin
+- `11045@cometsintertrade.com` — รุ่งรัตน์ ธงวิชัย (อิ๋ว) — operator
+- `11181@cometsintertrade.com` — วรสุนาถ คุณพรม (แทม) — admin
+- `11262@cometsintertrade.com` — สายธาร เขียวจันทร์ (ปอ) — operator
+- `11379@cometsintertrade.com` — อาภัทธสา แก้วสุวรรณ (บูม) — operator
+
+รหัสผ่านสืบทอดจากบัญชี email เดิม (qc03 / saitan.kj27 / arpattasa / aewrungrut)
+
+---
+
+## Epic 16 — UI Polish (v2.5.0)
+
+### US-1601: Defect รายแถวมีหน่วย (Unit)
+**As an** operator, **I want to** ระบุหน่วยนับของของเสีย (ชิ้น / อัน / แท่ง / ตลับ หรือพิมพ์เอง)
+
+**Acceptance Criteria:**
+- ทุกแถว defect ใน QC Entry / SuccessModal / QCEdit มี dropdown หน่วย
+- ตัวเลือก preset: ชิ้น, อัน, แท่ง, ตลับ
+- ตัวเลือก "อื่นๆ" → text input โผล่ขึ้นใต้ dropdown ให้พิมพ์เอง
+- DB column `qc_order_details.unit` (patch-21, free-text)
+- หน่วยถูกแสดงต่อท้ายจำนวน: History list, NCR PDF, Order PDF, Reject email
+
+### US-1602: Sup Code ค้นหาได้
+**As an** operator, **I want to** ค้น Supplier ด้วยรหัส/SAP code/ชื่อ — ไม่ต้อง scroll ทั้ง list
+
+**Acceptance Criteria:**
+- Combobox แบบ search-as-you-type
+- ค้นได้จาก: sup_code / sup_sap_code / supplier_name (3 field พร้อมกัน)
+- ผลลัพธ์แบ่งกลุ่ม Import / Local / Other (sticky header)
+- ปุ่ม × ล้างการเลือก
+- Esc ปิด dropdown
+- คลิกนอกช่อง → ปิดอัตโนมัติ
+
+### US-1603: History ใช้สีตามสถานะ
+**As a** user, **I want to** เห็นสถานะ Order ด้วยสีที่ต่างกัน
+
+**Acceptance Criteria:**
+- Accept = เขียว (emerald)
+- Accept Lot = เหลือง (amber) — และแสดง % จริง (ไม่ใช่ "—")
+- Reject = แดง (error)
+- ใช้สีเดียวกันทั้ง % chip, status chip, group header
+
+### US-1604: Thousand Separators
+**As a** user, **I want to** เห็นตัวเลขจำนวนมีคอมมาคั่นทุก 3 หลัก
+
+**Acceptance Criteria:**
+- 1,000+ ขึ้นไปมี comma เช่น `20,000`
+- Helper `fmtNum()` ใน utils.ts
+- ใช้กับ: Received Qty, Sample Size, Defect Qty, Critical/Major/Minor totals, ทุก PDF + email
+
+### US-1605: Rank Chip ชื่อเต็ม
+**As a** user, **I want to** เห็น chip Severity เป็นชื่อเต็มใน History card
+
+**Acceptance Criteria:**
+- เปลี่ยน "C:0 M:0 m:1" → "Critical:0 Major:0 Minor:1"
+
+### US-1606: InfoField แสดงข้อความยาวได้
+**As a** user, **I want to** ไม่ให้ข้อความรายละเอียดสินค้า (เช่น `CHARMISS,BM,CUSHION,...`) ทับคอลัมน์ถัดไป
+
+**Acceptance Criteria:**
+- InfoField มี `min-w-0` + `break-words` + `[overflow-wrap:anywhere]`
+- ข้อความยาว ๆ ที่ไม่มีช่องว่าง (มีแค่คอมมา) แบ่งบรรทัดได้
+
+### US-1607: ลบ Supplier name ออกจาก History
+**As a** user, **I want to** ไม่ให้แสดงชื่อ Supplier ในหน้า History
+
+**Acceptance Criteria:**
+- ลบ "Supplier: ..." จากการ์ดในรายการ
+- ลบ InfoField "ผู้จัดจำหน่าย / Supplier" จาก Popup รายละเอียด
+- ลบ InfoField เดียวกันจาก Popup NCR review
+- การค้นหายังใช้ supplier_name ในการ filter ได้ (แค่ไม่แสดง)
+
+### US-1608: SAP Breakdown Label Refresh
+**As a** user, **I want to** label SAP breakdown ใหม่ที่กระชับ
+
+**Acceptance Criteria:**
+- "ประเภท / Item Type" → "ประเภทของ Item"
+- "ที่มา / Item Source" → "ที่มาของ Item"
+- "หมวด SAP / Item Category" → "Item-Category"
+- "กลุ่ม SAP / Item Group" → "Item Group"
+- "กลุ่มย่อย / Sub-Item Group" → "Sub-Item Group"
+- ลบ Running No, Revision, "กลุ่มสินค้า (Master) / Product Category" ออกจาก QC Entry
+
+### US-1609: เปลี่ยนชื่อ "เอกสารต้นฉบับ"
+**As a** user, **I want to** เปลี่ยน label "เอกสารต้นฉบับ / Original Documents" → "สถานะเอกสาร"
+
+**Acceptance Criteria:**
+- เปลี่ยน 3 จุด: QC Entry form, SuccessModal popup, History detail popup
+- DB column ยังคงชื่อเดิม (`original_doc_with`) — เปลี่ยนแค่ label ในหน้าจอ
+
+---
+
+## Epic 17 — DevOps (v2.5.0)
+
+### US-1701: Vercel GitHub Auto-Deploy
+**As a** developer, **I want to** ให้ Vercel deploy อัตโนมัติเมื่อ push ไป `main`
+
+**Acceptance Criteria:**
+- Vercel project `web` เชื่อมกับ `Datacomets/QC` ผ่าน GitHub App
+- Production branch = `main`
+- Root directory = `web`
+- Frontend env vars (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`) ตั้งใน Vercel Environment Variables
+- ทุก push ไป `main` → Vercel build + deploy ใน 1-2 นาที โดยไม่ต้องรัน CLI
+
+---
+
 ## Acceptance Criteria Tagging Convention
 
 | Tag | Meaning |
 |---|---|
-| ✅ | Implemented & deployed in v2.4.0 |
+| ✅ | Implemented & deployed in v2.5.0 |
 | 🚧 | In progress |
 | 📋 | Backlog (future phases) |
 
-> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.4.0) ยกเว้นที่ระบุไว้
+> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.5.0) ยกเว้นที่ระบุไว้
 
 ---
 
