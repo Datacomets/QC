@@ -17,7 +17,10 @@ export default function Login() {
     e.preventDefault();
     setErr(''); setBusy(true);
     try {
-      const { error } = await signIn(email.trim(), password);
+      const trimmed = email.trim();
+      // Allow login with just employee ID — auto-append company domain
+      const fullEmail = trimmed.includes('@') ? trimmed : `${trimmed}@cometsintertrade.com`;
+      const { error } = await signIn(fullEmail, password);
       setBusy(false);
       if (error) setErr(error);
       else nav('/');
@@ -38,10 +41,10 @@ export default function Login() {
 
         <form onSubmit={submit} className="card space-y-5">
           <div>
-            <label className="field-label">อีเมล / Email</label>
-            <input type="email" required autoFocus className="field-input"
+            <label className="field-label">User</label>
+            <input type="text" required autoFocus className="field-input"
               value={email} onChange={e => setEmail(e.target.value)}
-              placeholder="you@cometsintertrade.com" />
+              placeholder="รหัสพนักงาน" />
           </div>
           <div>
             <label className="field-label">รหัสผ่าน / Password</label>

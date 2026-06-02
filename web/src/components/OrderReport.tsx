@@ -1,5 +1,5 @@
 import { forwardRef } from 'react';
-import { fmtDate, getProductType } from '../lib/utils';
+import { fmtDate, getProductType, fmtNum } from '../lib/utils';
 
 interface OrderInfo {
   order_no: string;
@@ -100,7 +100,7 @@ const OrderReport = forwardRef<HTMLDivElement, Props>(function OrderReport({ ord
             <Row label1="Description" value1={order.material_description || '-'} colSpan2 />
             <Row label1="Brand" value1={order.brand || '-'} label2="Inspection Result" value2={order.status} />
             <Row label1="Supplier" value1={order.supplier_name || '-'} label2="Sup Code" value2={order.sup_code || '-'} />
-            <Row label1="Lot No" value1={order.lot_no || '-'} label2="Received Qty" value2={order.received_qty != null ? String(order.received_qty) : '-'} />
+            <Row label1="Lot No" value1={order.lot_no || '-'} label2="Received Qty" value2={order.received_qty != null ? fmtNum(order.received_qty) : '-'} />
             <Row label1="Sales" value1={order.sales || '-'} label2="SCM" value2={order.scm || '-'} />
           </tbody>
         </table>
@@ -122,12 +122,12 @@ const OrderReport = forwardRef<HTMLDivElement, Props>(function OrderReport({ ord
           </thead>
           <tbody>
             <tr>
-              <td style={cellTd}>{order.sample_size}</td>
-              <td style={cellTd}>{order.good_qty}</td>
-              <td style={{ ...cellTd, color: order.defect_qty > 0 ? '#991b1b' : '#000', fontWeight: 700 }}>{order.defect_qty}</td>
-              <td style={cellTd}>{order.critical_qty}</td>
-              <td style={cellTd}>{order.major_qty}</td>
-              <td style={cellTd}>{order.minor_qty}</td>
+              <td style={cellTd}>{fmtNum(order.sample_size)}</td>
+              <td style={cellTd}>{fmtNum(order.good_qty)}</td>
+              <td style={{ ...cellTd, color: order.defect_qty > 0 ? '#991b1b' : '#000', fontWeight: 700 }}>{fmtNum(order.defect_qty)}</td>
+              <td style={cellTd}>{fmtNum(order.critical_qty)}</td>
+              <td style={cellTd}>{fmtNum(order.major_qty)}</td>
+              <td style={cellTd}>{fmtNum(order.minor_qty)}</td>
               <td style={{ ...cellTd, color: Number(order.defect_percent) > 0 ? '#991b1b' : '#000', fontWeight: 700 }}>
                 {Number(order.defect_percent).toFixed(2)}%
               </td>
@@ -148,7 +148,7 @@ const OrderReport = forwardRef<HTMLDivElement, Props>(function OrderReport({ ord
                   <div><b>Code:</b> <span style={{ fontFamily: 'monospace' }}>{d.defect_code}</span></div>
                   <div><b>Symptom:</b> {d.symptom}</div>
                   <div><b>Rank:</b> {d.critical_rank}</div>
-                  <div style={{ textAlign: 'right' }}><b>Qty:</b> {d.quantity}{d.unit ? ` ${d.unit}` : ''}</div>
+                  <div style={{ textAlign: 'right' }}><b>Qty:</b> {fmtNum(d.quantity)}{d.unit ? ` ${d.unit}` : ''}</div>
                 </div>
                 {d.images && d.images.length > 0 && (
                   <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>

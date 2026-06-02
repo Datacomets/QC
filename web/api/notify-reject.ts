@@ -47,6 +47,11 @@ interface DetailRow {
   unit: string | null;
 }
 
+function fmtNum(n: number | null | undefined): string {
+  if (n === null || n === undefined || isNaN(Number(n))) return '—';
+  return Number(n).toLocaleString('en-US');
+}
+
 function fmtDate(s: string | null | undefined) {
   if (!s) return '—';
   const d = new Date(s);
@@ -68,7 +73,7 @@ function buildEmail(order: OrderRow, details: DetailRow[], ncrNo: string | null)
       <td style="padding:6px 10px;border:1px solid #d1d5db;font-family:monospace;font-size:11px">${escapeHtml(d.defect_code)}</td>
       <td style="padding:6px 10px;border:1px solid #d1d5db;font-size:12px">${escapeHtml(d.symptom)}</td>
       <td style="padding:6px 10px;border:1px solid #d1d5db;font-size:12px;text-align:center">${escapeHtml(d.critical_rank)}</td>
-      <td style="padding:6px 10px;border:1px solid #d1d5db;font-size:12px;text-align:right">${d.quantity}${d.unit ? ' ' + escapeHtml(d.unit) : ''}</td>
+      <td style="padding:6px 10px;border:1px solid #d1d5db;font-size:12px;text-align:right">${fmtNum(d.quantity)}${d.unit ? ' ' + escapeHtml(d.unit) : ''}</td>
     </tr>
   `).join('');
 
@@ -116,7 +121,7 @@ function buildEmail(order: OrderRow, details: DetailRow[], ncrNo: string | null)
         <div style="font-size:12px;color:#666">% ของเสีย / Defect Rate</div>
         <div style="font-size:24px;font-weight:700;color:#991b1b">${Number(order.defect_percent).toFixed(2)}%</div>
         <div style="font-size:11px;color:#666;margin-top:4px">
-          ตรวจ ${order.sample_size} · เสีย ${order.defect_qty} · Critical ${order.critical_qty} · Major ${order.major_qty} · Minor ${order.minor_qty}
+          ตรวจ ${fmtNum(order.sample_size)} · เสีย ${fmtNum(order.defect_qty)} · Critical ${fmtNum(order.critical_qty)} · Major ${fmtNum(order.major_qty)} · Minor ${fmtNum(order.minor_qty)}
         </div>
       </div>
 
@@ -145,10 +150,10 @@ Brand: ${order.brand || '—'}
 Supplier: ${order.supplier_name || '—'}
 Lot: ${order.lot_no || '—'}
 
-% ของเสีย: ${Number(order.defect_percent).toFixed(2)}%  (ตรวจ ${order.sample_size} · เสีย ${order.defect_qty})
+% ของเสีย: ${Number(order.defect_percent).toFixed(2)}%  (ตรวจ ${fmtNum(order.sample_size)} · เสีย ${fmtNum(order.defect_qty)})
 
 รายการของเสีย:
-${details.map(d => `• ${d.defect_code}: ${d.symptom} — ${d.critical_rank} x ${d.quantity}${d.unit ? ' ' + d.unit : ''}`).join('\n') || '(ไม่มี)'}
+${details.map(d => `• ${d.defect_code}: ${d.symptom} — ${d.critical_rank} x ${fmtNum(d.quantity)}${d.unit ? ' ' + d.unit : ''}`).join('\n') || '(ไม่มี)'}
 
 ${order.note ? `หมายเหตุ: ${order.note}\n\n` : ''}ดูรายละเอียด: ${APP_URL}/
 `;

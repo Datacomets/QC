@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { fmtDate, fmtDateTime, getProductType, sapBreakdownLabel } from '../lib/utils';
+import { fmtDate, fmtDateTime, fmtNum, getProductType, sapBreakdownLabel } from '../lib/utils';
 import { downloadPdf } from '../lib/pdf';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -558,7 +558,6 @@ export default function History() {
                     </div>
                     <div className="flex gap-4 mt-1 text-xs text-on-surface-variant">
                       {o.brand && <span>Brand: <b className="text-on-surface">{o.brand}</b></span>}
-                      {o.supplier_name && <span>Supplier: <b className="text-on-surface">{o.supplier_name}</b></span>}
                       {o.lot_no && <span>Lot: <b className="text-on-surface">{o.lot_no}</b></span>}
                     </div>
                   </div>
@@ -571,12 +570,12 @@ export default function History() {
                       {Number(o.defect_percent).toFixed(2)}%
                     </div>
                     <div className="flex gap-1.5 mt-1 justify-end text-[10px]">
-                      <span className="chip">C:{o.critical_qty}</span>
-                      <span className="chip">M:{o.major_qty}</span>
-                      <span className="chip">m:{o.minor_qty}</span>
+                      <span className="chip">Critical:{fmtNum(o.critical_qty)}</span>
+                      <span className="chip">Major:{fmtNum(o.major_qty)}</span>
+                      <span className="chip">Minor:{fmtNum(o.minor_qty)}</span>
                     </div>
                     <div className="text-[10px] text-on-surface-variant mt-1">
-                      ตรวจ/Inspected {o.sample_size} / ดี/Good {o.good_qty} / เสีย/Defect {o.defect_qty}
+                      ตรวจ/Inspected {fmtNum(o.sample_size)} / ดี/Good {fmtNum(o.good_qty)} / เสีย/Defect {fmtNum(o.defect_qty)}
                     </div>
                   </div>
                 </div>
@@ -639,9 +638,8 @@ export default function History() {
                   <InfoField label="ฝ่ายขาย / Sales" value={o.sales} />
                   <InfoField label="SCM" value={o.scm} />
                   <InfoField label="รหัส Sup / Sup Code" value={supDisplay(o.sup_code)} />
-                  <InfoField label="ผู้จัดจำหน่าย / Supplier" value={o.supplier_name} />
-                  <InfoField label="จำนวนรับ / Received Qty" value={o.received_qty != null ? String(o.received_qty) : null} />
-                  <InfoField label="จำนวนตรวจสอบ / Sample Size" value={String(o.sample_size)} />
+                  <InfoField label="จำนวนรับ / Received Qty" value={o.received_qty != null ? fmtNum(o.received_qty) : null} />
+                  <InfoField label="จำนวนตรวจสอบ / Sample Size" value={fmtNum(o.sample_size)} />
                   <InfoField label="สถานะเอกสาร" value={o.original_doc_with} />
                   <InfoField label="ผู้บันทึก / Recorded By" value={profilesMap[o.created_by || ''] || null} />
                 </div>
@@ -984,9 +982,6 @@ export default function History() {
                       <div className="col-span-2 md:col-span-3">
                         <InfoField label="รายละเอียด / Description" value={order.material_description} />
                       </div>
-                      <div className="col-span-2">
-                        <InfoField label="ผู้จัดจำหน่าย / Supplier" value={order.supplier_name} />
-                      </div>
                       <InfoField label="รหัส Sup / Sup Code" value={supDisplay(order.sup_code)} />
                       <InfoField label="หมายเลข Lot / Lot No" value={order.lot_no} />
                       <InfoField label="ฝ่ายขาย / Sales" value={order.sales} />
@@ -1190,9 +1185,9 @@ export default function History() {
 
 function InfoField({ label, value }: { label: string; value?: string | null }) {
   return (
-    <div>
+    <div className="min-w-0">
       <div className="text-[11px] uppercase tracking-wide text-on-surface-variant">{label}</div>
-      <div className="font-medium">{value || '—'}</div>
+      <div className="font-medium break-words [overflow-wrap:anywhere]">{value || '—'}</div>
     </div>
   );
 }
@@ -1208,10 +1203,11 @@ function ApprovalLine({ label, by, at }: { label: string; by: string; at: string
 }
 
 function SummaryCell({ label, value, highlight }: { label: string; value: string | number; highlight?: boolean }) {
+  const display = typeof value === 'number' ? fmtNum(value) : value;
   return (
     <div className={`rounded px-2 py-1.5 ${highlight ? 'bg-error-container/40 text-error' : 'bg-surface-mid'}`}>
       <div className="text-[10px] uppercase tracking-wide text-on-surface-variant">{label}</div>
-      <div className="font-display font-bold">{value}</div>
+      <div className="font-display font-bold">{display}</div>
     </div>
   );
 }

@@ -1,3 +1,9 @@
+/** Format integer with thousand separators (e.g. 12345 → "12,345"). Returns '—' for null/undefined. */
+export function fmtNum(n: number | null | undefined): string {
+  if (n === null || n === undefined || isNaN(Number(n))) return '—';
+  return Number(n).toLocaleString('en-US');
+}
+
 /** Format date string to DD-MM-YYYY */
 export function fmtDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';

@@ -1,6 +1,6 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { getProductType } from '../lib/utils';
+import { getProductType, fmtNum } from '../lib/utils';
 import { generatePdfDataUri } from '../lib/pdf';
 import NcrReport from './NcrReport';
 
@@ -449,10 +449,10 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
               </div>
             </div>
             <div className="flex gap-2 text-xs mb-3 flex-wrap">
-              <span className="chip">Critical: <b className="ml-1">{critTotal}</b></span>
-              <span className="chip">Major: <b className="ml-1">{majTotal}</b></span>
-              <span className="chip">Minor: <b className="ml-1">{minTotal}</b></span>
-              <span className="chip chip-active">รวม: <b className="ml-1">{totalDefect}</b></span>
+              <span className="chip">Critical: <b className="ml-1">{fmtNum(critTotal)}</b></span>
+              <span className="chip">Major: <b className="ml-1">{fmtNum(majTotal)}</b></span>
+              <span className="chip">Minor: <b className="ml-1">{fmtNum(minTotal)}</b></span>
+              <span className="chip chip-active">รวม: <b className="ml-1">{fmtNum(totalDefect)}</b></span>
             </div>
 
             {details.length === 0 ? (

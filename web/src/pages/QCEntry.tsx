@@ -1,7 +1,7 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { parseSapCode } from '../lib/utils';
+import { parseSapCode, fmtNum } from '../lib/utils';
 import SuccessModal, { OrderDraft } from '../components/SuccessModal';
 
 type Rank = 'Critical' | 'Major' | 'Minor';
@@ -413,10 +413,10 @@ export default function QCEntry() {
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-display font-bold text-lg">รายการของเสีย / Defect List</h2>
           <div className="flex gap-2 text-xs">
-            <span className="chip">Critical: <b className="ml-1 text-on-surface">{totals.crit}</b></span>
-            <span className="chip">Major: <b className="ml-1 text-on-surface">{totals.maj}</b></span>
-            <span className="chip">Minor: <b className="ml-1 text-on-surface">{totals.min}</b></span>
-            <span className="chip chip-active">รวม/Total: <b className="ml-1">{totals.tot}</b></span>
+            <span className="chip">Critical: <b className="ml-1 text-on-surface">{fmtNum(totals.crit)}</b></span>
+            <span className="chip">Major: <b className="ml-1 text-on-surface">{fmtNum(totals.maj)}</b></span>
+            <span className="chip">Minor: <b className="ml-1 text-on-surface">{fmtNum(totals.min)}</b></span>
+            <span className="chip chip-active">รวม/Total: <b className="ml-1">{fmtNum(totals.tot)}</b></span>
           </div>
         </div>
 
