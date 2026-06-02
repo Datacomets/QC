@@ -2,7 +2,7 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { sapBreakdownLabel } from '../lib/utils';
+import { sapBreakdownLabel, PCM_LIST, PUR_LIST } from '../lib/utils';
 
 type Rank = 'Critical' | 'Major' | 'Minor';
 interface DetailRow { defect_code: string; symptom: string; critical_rank: Rank; quantity: number; unit: string; existingImages: string[]; newImages: { file: File; preview: string }[]; }
@@ -35,6 +35,10 @@ export default function QCEdit() {
   const [sampleSize, setSampleSize] = useState<number | ''>('');
   const [note, setNote] = useState('');
   const [status, setStatus] = useState('');
+  const [pcmChoice, setPcmChoice] = useState('');
+  const [pcmCustom, setPcmCustom] = useState('');
+  const [purChoice, setPurChoice] = useState('');
+  const [purCustom, setPurCustom] = useState('');
   const [details, setDetails] = useState<DetailRow[]>([]);
   const [defects, setDefects] = useState<{ defect_code: string; symptom: string }[]>([]);
   const [defectQuery, setDefectQuery] = useState('');
@@ -78,6 +82,13 @@ export default function QCEdit() {
       setSampleSize(order.sample_size);
       setNote(order.note || '');
       setStatus(['Accept', 'Accept Lot', 'Reject'].includes(order.status) ? order.status : '');
+      // PCM / PUR — derive choice + custom
+      const p = order.pcm || '';
+      setPcmChoice(p ? (PCM_LIST.includes(p) ? p : '__custom__') : '');
+      setPcmCustom(p && !PCM_LIST.includes(p) ? p : '');
+      const u = order.pur || '';
+      setPurChoice(u ? (PUR_LIST.includes(u) ? u : '__custom__') : '');
+      setPurCustom(u && !PUR_LIST.includes(u) ? u : '');
 
       const { data: dets } = await supabase.from('qc_order_details')
         .select('defect_code,symptom,critical_rank,quantity,unit,images')
@@ -147,6 +158,9 @@ export default function QCEdit() {
     if (!sample) { setMsg('กรุณากรอกจำนวนตรวจสอบ'); setSaving(false); return; }
     if (!status) { setMsg('กรุณาเลือกผลตรวจ / Please select inspection result'); setSaving(false); return; }
 
+    const resolvedPcm = pcmChoice === '__custom__' ? (pcmCustom.trim() || null) : (pcmChoice || null);
+    const resolvedPur = purChoice === '__custom__' ? (purCustom.trim() || null) : (purChoice || null);
+
     // Build update payload
     const updateRow: Record<string, unknown> = {
       received_date: receivedDate || null,
@@ -156,6 +170,7 @@ export default function QCEdit() {
       lot_no: lotNo.trim() || null,
       received_qty: receivedQty === '' ? null : +receivedQty,
       sample_size: sample, note: note.trim() || null, status,
+      pcm: resolvedPcm, pur: resolvedPur,
     };
 
     // Edit on previously-approved order → return to Pending (data changed after approval
@@ -423,9 +438,43 @@ export default function QCEdit() {
         )}
       </section>
 
-      <section className="section">
-        <label className="field-label">หมายเหตุ / Remarks</label>
-        <textarea rows={3} className="field-input" value={note} onChange={e => setNote(e.target.value)} />
+      <section className="section space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="field-label">PCM</label>
+            <select className="field-select"
+              value={pcmChoice}
+              onChange={e => { setPcmChoice(e.target.value); if (e.target.value !== '__custom__') setPcmCustom(''); }}>
+              <option value="">— เลือก / Select —</option>
+              {PCM_LIST.map(n => <option key={n} value={n}>{n}</option>)}
+              <option value="__custom__">+ อื่นๆ (พิมพ์เอง)</option>
+            </select>
+            {pcmChoice === '__custom__' && (
+              <input className="field-input mt-2" autoFocus
+                value={pcmCustom} onChange={e => setPcmCustom(e.target.value)}
+                placeholder="พิมพ์ชื่อ PCM" />
+            )}
+          </div>
+          <div>
+            <label className="field-label">PUR</label>
+            <select className="field-select"
+              value={purChoice}
+              onChange={e => { setPurChoice(e.target.value); if (e.target.value !== '__custom__') setPurCustom(''); }}>
+              <option value="">— เลือก / Select —</option>
+              {PUR_LIST.map(n => <option key={n} value={n}>{n}</option>)}
+              <option value="__custom__">+ อื่นๆ (พิมพ์เอง)</option>
+            </select>
+            {purChoice === '__custom__' && (
+              <input className="field-input mt-2" autoFocus
+                value={purCustom} onChange={e => setPurCustom(e.target.value)}
+                placeholder="พิมพ์ชื่อ PUR" />
+            )}
+          </div>
+        </div>
+        <div>
+          <label className="field-label">หมายเหตุ / Remarks</label>
+          <textarea rows={3} className="field-input" value={note} onChange={e => setNote(e.target.value)} />
+        </div>
       </section>
 
       {msg && <div className="rounded-md bg-error-container px-3 py-2 text-sm text-error">{msg}</div>}

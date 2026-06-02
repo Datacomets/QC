@@ -4,6 +4,28 @@ export function fmtNum(n: number | null | undefined): string {
   return Number(n).toLocaleString('en-US');
 }
 
+/** ฝ่ายจัดซื้อ — PCM list (จากไฟล์ "รายชื่อฝ่ายจัดซื้อ01.06.26.xlsx") */
+export const PCM_LIST = [
+  'เดือนเพ็ญ ขวัญมงคลทอง (พลอย)',
+  'พัณณ์ภัสร์ บัตรพันธนะ (เมย์)',
+  'ปาลิตา รุ่งเรืองจาตุรันต์ (กลาส)',
+  'ธัญชนก รักษาศิริ (น้ำผึ้ง)',
+  'นิชนันท์ วงษ์วรรษที (ฝ้าย)',
+  'วัชราภรณ์ สุดใจ (นุ่น)',
+  'อัจฉราภรณ์ สถาปนศิริ (ไนน์)',
+  'ยศวดี รัตนกุล (ตีตี้)',
+  'สุปราณี อินทร์ชัย (มิ้นท์)',
+];
+
+/** ฝ่ายจัดซื้อ — PUR list */
+export const PUR_LIST = [
+  'วัชราภรณ์ รักษ์วงษ์ (มด)',
+  'สุพัตรา มีสุข (โบว์)',
+  'ณัฐฐาพร เอี่ยมแทน (สายป่าน)',
+  'น้ำเพชร รอบคอบ (โปเต้)',
+  'กาญจนา ถาวงษ์กลาง (นก)',
+];
+
 /** Format date string to DD-MM-YYYY */
 export function fmtDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';

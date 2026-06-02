@@ -810,6 +810,15 @@ US-XX: As a [role], I want [action], so that [benefit]
 - เปลี่ยน 3 จุด: QC Entry form, SuccessModal popup, History detail popup
 - DB column ยังคงชื่อเดิม (`original_doc_with`) — เปลี่ยนแค่ label ในหน้าจอ
 
+### US-1610: Material Management โหลดข้อมูลครบ
+**As an** admin, **I want to** เห็น Material ครบทุกรายการในหน้า Material Management
+
+**Acceptance Criteria:**
+- หน้า Material แสดงครบ ~19,070 รายการ (ไม่ใช่ 1,000 แรก)
+- กรอง type filter (PK / FG / SG / Bulk / RM / etc.) ทำงานถูกต้องทุกค่า
+- ตอน load ดึงเป็น chunk ละ 1,000 จนหมด (Supabase / PostgREST default max-rows = 1000)
+- โหลดใช้เวลา ~3-5 วินาทีสำหรับ 19k records
+
 ---
 
 ## Epic 17 — DevOps (v2.5.0)

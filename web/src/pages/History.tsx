@@ -17,6 +17,8 @@ interface Order {
   received_date: string | null;
   project_brief_no: string | null;
   original_doc_with: string | null;
+  pcm: string | null;
+  pur: string | null;
   sap_code: string;
   material_description: string | null;
   brand: string | null;
@@ -641,6 +643,8 @@ export default function History() {
                   <InfoField label="จำนวนรับ / Received Qty" value={o.received_qty != null ? fmtNum(o.received_qty) : null} />
                   <InfoField label="จำนวนตรวจสอบ / Sample Size" value={fmtNum(o.sample_size)} />
                   <InfoField label="สถานะเอกสาร" value={o.original_doc_with} />
+                  <InfoField label="PCM" value={o.pcm} />
+                  <InfoField label="PUR" value={o.pur} />
                   <InfoField label="ผู้บันทึก / Recorded By" value={profilesMap[o.created_by || ''] || null} />
                 </div>
                 {o.note && (

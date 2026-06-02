@@ -1,6 +1,6 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { getProductType, fmtNum } from '../lib/utils';
+import { getProductType, fmtNum, PCM_LIST, PUR_LIST } from '../lib/utils';
 import { generatePdfDataUri } from '../lib/pdf';
 import NcrReport from './NcrReport';
 
@@ -21,6 +21,8 @@ interface OrderDraft {
   received_date: string | null;            // วันที่รับเข้า / Received Date (optional)
   preview_order_no: string | null;         // peeked QC<YYMM><seq4> for display only
   original_doc_with: string | null;        // เอกสารต้นฉบับอยู่ที่ — dropdown value or custom text
+  pcm: string | null;                       // PCM (Product Category Management)
+  pur: string | null;                       // PUR (Purchasing)
   created_by_name: string | null;          // display name of inspector (logged-in user)
   project_brief_no: string;
   sap_code: string;
@@ -66,6 +68,25 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
     const v = draft.original_doc_with;
     return v && !PRESETS.includes(v) ? v : '';
   });
+  // PCM / PUR — derived choice + custom text
+  const [pcmChoice, setPcmChoice] = useState(() => {
+    const v = draft.pcm;
+    if (!v) return '';
+    return PCM_LIST.includes(v) ? v : '__custom__';
+  });
+  const [pcmCustom, setPcmCustom] = useState(() => {
+    const v = draft.pcm;
+    return v && !PCM_LIST.includes(v) ? v : '';
+  });
+  const [purChoice, setPurChoice] = useState(() => {
+    const v = draft.pur;
+    if (!v) return '';
+    return PUR_LIST.includes(v) ? v : '__custom__';
+  });
+  const [purCustom, setPurCustom] = useState(() => {
+    const v = draft.pur;
+    return v && !PUR_LIST.includes(v) ? v : '';
+  });
   const [details, setDetails] = useState<DraftDefect[]>(draft.details);
 
   // Approver
@@ -101,6 +122,13 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
   const hasApprover = approverChoice === '__custom__'
     ? approverCustom.trim().length > 0
     : !!approverChoice;
+
+  const resolvedPcm = pcmChoice === '__custom__'
+    ? (pcmCustom.trim() || null)
+    : (pcmChoice || null);
+  const resolvedPur = purChoice === '__custom__'
+    ? (purCustom.trim() || null)
+    : (purChoice || null);
 
   const resolvedOriginalDoc = originalDocChoice === '__custom__'
     ? (originalDocCustom.trim() || null)
@@ -193,6 +221,8 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
       order_date: orderDate,
       received_date: receivedDate || null,
       original_doc_with: resolvedOriginalDoc,
+      pcm: resolvedPcm,
+      pur: resolvedPur,
       project_brief_no: draft.project_brief_no,
       sap_code: draft.sap_code,
       material_description: draft.material_description,
@@ -406,6 +436,47 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
               : draft.status === 'Accept' ? 'bg-primary/10 text-primary'
               : 'bg-amber-100 text-amber-800'
             } />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="field-label">PCM</label>
+              <select className="field-select"
+                value={pcmChoice}
+                onChange={e => {
+                  setPcmChoice(e.target.value);
+                  if (e.target.value !== '__custom__') setPcmCustom('');
+                }}>
+                <option value="">— เลือก / Select —</option>
+                {PCM_LIST.map(n => <option key={n} value={n}>{n}</option>)}
+                <option value="__custom__">+ อื่นๆ (พิมพ์เอง)</option>
+              </select>
+              {pcmChoice === '__custom__' && (
+                <input className="field-input mt-2" autoFocus
+                  value={pcmCustom}
+                  onChange={e => setPcmCustom(e.target.value)}
+                  placeholder="พิมพ์ชื่อ PCM" />
+              )}
+            </div>
+            <div>
+              <label className="field-label">PUR</label>
+              <select className="field-select"
+                value={purChoice}
+                onChange={e => {
+                  setPurChoice(e.target.value);
+                  if (e.target.value !== '__custom__') setPurCustom('');
+                }}>
+                <option value="">— เลือก / Select —</option>
+                {PUR_LIST.map(n => <option key={n} value={n}>{n}</option>)}
+                <option value="__custom__">+ อื่นๆ (พิมพ์เอง)</option>
+              </select>
+              {purChoice === '__custom__' && (
+                <input className="field-input mt-2" autoFocus
+                  value={purCustom}
+                  onChange={e => setPurCustom(e.target.value)}
+                  placeholder="พิมพ์ชื่อ PUR" />
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

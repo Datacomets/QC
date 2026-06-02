@@ -1,7 +1,7 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { parseSapCode, fmtNum } from '../lib/utils';
+import { parseSapCode, fmtNum, PCM_LIST, PUR_LIST } from '../lib/utils';
 import SuccessModal, { OrderDraft } from '../components/SuccessModal';
 
 type Rank = 'Critical' | 'Major' | 'Minor';
@@ -35,6 +35,10 @@ export default function QCEntry() {
   const [note, setNote] = useState('');
   const [originalDocChoice, setOriginalDocChoice] = useState('');   // dropdown selection or '__custom__'
   const [originalDocCustom, setOriginalDocCustom] = useState('');
+  const [pcmChoice, setPcmChoice] = useState('');                   // PCM dropdown selection or '__custom__'
+  const [pcmCustom, setPcmCustom] = useState('');
+  const [purChoice, setPurChoice] = useState('');                   // PUR dropdown selection or '__custom__'
+  const [purCustom, setPurCustom] = useState('');
 
   const [details, setDetails] = useState<DetailRow[]>([]);
   const [defects, setDefects] = useState<Defect[]>([]);
@@ -206,12 +210,22 @@ export default function QCEntry() {
       ? (originalDocCustom.trim() || null)
       : (originalDocChoice || null);
 
+    const pcmVal = pcmChoice === '__custom__'
+      ? (pcmCustom.trim() || null)
+      : (pcmChoice || null);
+
+    const purVal = purChoice === '__custom__'
+      ? (purCustom.trim() || null)
+      : (purChoice || null);
+
     setDraft({
       order_date: orderDate,
       received_date: receivedDate || null,
       project_brief_no: projectBriefNo.trim(),
       preview_order_no: previewOrderNo || null,
       original_doc_with: originalDocWith,
+      pcm: pcmVal,
+      pur: purVal,
       created_by_name: profile.full_name || null,
       sap_code: sapCode.trim(),
       material_description: material?.description || null,
@@ -240,6 +254,7 @@ export default function QCEntry() {
     setReceivedDate(''); setProjectBriefNo(''); setSapCode(''); setSupSapCode(''); setSalesVal(''); setScmVal('');
     setLotNo(''); setReceivedQty(''); setSampleSize(''); setOrderStatus('');
     setNote(''); setOriginalDocChoice(''); setOriginalDocCustom('');
+    setPcmChoice(''); setPcmCustom(''); setPurChoice(''); setPurCustom('');
     setDetails([]); setStaging([]);
     setMsg(`✅ บันทึก Order ${orderNo} สำเร็จ${ncrNo ? ` — NCR: ${ncrNo}` : ''}`);
   };
@@ -321,6 +336,37 @@ export default function QCEntry() {
         <Display label="แบรนด์ / Brand" value={material?.brand} />
         <Display label="ฝ่ายขาย / Sales" value={salesVal || null} />
         <Display label="SCM" value={scmVal || null} />
+
+        <div>
+          <label className="field-label">PCM</label>
+          <select className="field-select"
+            value={pcmChoice}
+            onChange={e => { setPcmChoice(e.target.value); if (e.target.value !== '__custom__') setPcmCustom(''); }}>
+            <option value="">— เลือก / Select —</option>
+            {PCM_LIST.map(n => <option key={n} value={n}>{n}</option>)}
+            <option value="__custom__">+ อื่นๆ (พิมพ์เอง)</option>
+          </select>
+          {pcmChoice === '__custom__' && (
+            <input className="field-input mt-2" autoFocus
+              value={pcmCustom} onChange={e => setPcmCustom(e.target.value)}
+              placeholder="พิมพ์ชื่อ PCM" />
+          )}
+        </div>
+        <div>
+          <label className="field-label">PUR</label>
+          <select className="field-select"
+            value={purChoice}
+            onChange={e => { setPurChoice(e.target.value); if (e.target.value !== '__custom__') setPurCustom(''); }}>
+            <option value="">— เลือก / Select —</option>
+            {PUR_LIST.map(n => <option key={n} value={n}>{n}</option>)}
+            <option value="__custom__">+ อื่นๆ (พิมพ์เอง)</option>
+          </select>
+          {purChoice === '__custom__' && (
+            <input className="field-input mt-2" autoFocus
+              value={purCustom} onChange={e => setPurCustom(e.target.value)}
+              placeholder="พิมพ์ชื่อ PUR" />
+          )}
+        </div>
 
         <div className="md:col-span-3 relative">
           <label className="field-label">รหัสผู้จัดจำหน่าย / Sup Code</label>

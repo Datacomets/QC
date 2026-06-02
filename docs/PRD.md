@@ -791,6 +791,7 @@
 - **ลบฟิลด์ที่ไม่ใช้**: Running No, Revision, "กลุ่มสินค้า (Master) / Product Category" ออกจากหน้า QC Entry.
 - **Employee-ID accounts** — เพิ่ม 5 ผู้ใช้ที่ login ด้วยรหัสพนักงาน (10503, 11045, 11181, 11262, 11379) ผ่านสคริปต์ใหม่ `scripts/seed-users-batch.mjs` — รหัสผ่านสืบทอดจากบัญชี email เดิมของแต่ละคน.
 - **Vercel GitHub Integration** — Project `web` เชื่อมกับ `Datacomets/QC` (branch `main`, root `web/`); push ไปยัง `main` → auto build + deploy. Frontend env vars (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`) ตั้งใน Vercel Environment Variables.
+- **Materials pagination fix** — หน้า Material Management โหลด materials ทั้ง ~19,070 รายการ ผ่านการ page-through ทีละ 1,000 (PostgREST max-rows default = 1000). ก่อนแก้ filter "PK" คืน 0 เพราะ 1,000 แรกเรียงตาม sap_code เป็น FG (`1xxxxxxx`) ทั้งหมด.
 - DB patches: 21
 
 ### v2.4.1 — 22 พฤษภาคม 2026 (Documentation Revision)
