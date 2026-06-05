@@ -225,14 +225,16 @@ function SuppliersPane() {
       const colName     = findCol(...nameAliases);
       const colPurchase = findCol(...purchaseAliases);
 
-      // Index existing DB rows by sap (preferred) and sup_code (fallback)
-      const bySap = new Map<string, SupplierRow>();
+      // Index existing DB rows by sup_code (DB unique key) and sup_sap_code (fallback for blank sup_code)
       const byCode = new Map<string, SupplierRow>();
+      const bySap = new Map<string, SupplierRow>();
       rows.forEach(r => {
-        if (r.sup_sap_code) bySap.set(String(r.sup_sap_code).trim(), r);
         if (r.sup_code)     byCode.set(String(r.sup_code).trim(), r);
+        if (r.sup_sap_code) bySap.set(String(r.sup_sap_code).trim(), r);
       });
 
+      // Dedup within file by sup_code (DB unique key). Blank sup_code → fallback to sup_sap_code.
+      // This handles trader pattern: same SAP shared across many sub-suppliers with distinct sup_codes.
       const seenInFile = new Set<string>();
       const preview: SupPreviewRow[] = [];
 
@@ -245,6 +247,9 @@ function SuppliersPane() {
         const supName  = colName     >= 0 ? String(row[colName]     ?? '').trim() : '';
         const purchase = colPurchase >= 0 ? String(row[colPurchase] ?? '').trim() : '';
 
+        // Dedup key — sup_code if present, else sup_sap_code (matches the blank-sup_code → sap fallback at insert time)
+        const dedupKey = supCode || supSap;
+
         let status: SupRowStatus;
         let errorMsg: string | undefined;
         let matchedId: number | undefined;
@@ -255,13 +260,17 @@ function SuppliersPane() {
         } else if (!supName) {
           status = 'error';
           errorMsg = 'Missing Supplier Name';
-        } else if (seenInFile.has(supSap)) {
+        } else if (seenInFile.has(dedupKey)) {
           status = 'error';
-          errorMsg = 'Duplicate SAP Code in file';
+          errorMsg = supCode
+            ? `Duplicate Sup Code "${supCode}" in file`
+            : `Duplicate SAP "${supSap}" in file (blank Sup Code)`;
         } else {
-          seenInFile.add(supSap);
-          // Match by sap first (preferred), then sup_code fallback
-          const existing = bySap.get(supSap) || (supCode ? byCode.get(supCode) : undefined);
+          seenInFile.add(dedupKey);
+          // Match against DB: sup_code first (unique constraint), then fallback by sap when sup_code is blank
+          const existing = supCode
+            ? byCode.get(supCode)
+            : bySap.get(supSap);
           if (existing) { status = 'update'; matchedId = existing.id; }
           else          { status = 'new'; }
         }
