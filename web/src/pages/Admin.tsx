@@ -1,7 +1,8 @@
-import { ChangeEvent, DragEvent, FormEvent, useEffect, useRef, useState } from 'react';
+import { ChangeEvent, DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
+import { fmtDate } from '../lib/utils';
 import { generatePdfDataUri } from '../lib/pdf';
 import NcrReport from '../components/NcrReport';
 
@@ -79,17 +80,57 @@ interface SupplierRow {
   purchase: string | null;
 }
 
+interface SupplierUploadLog {
+  id: number;
+  file_name: string;
+  uploaded_by: string;
+  uploaded_at: string;
+  total_rows: number;
+  inserted_count: number;
+  updated_count: number;
+  error_count: number;
+}
+
+type SupRowStatus = 'new' | 'update' | 'error';
+
+interface SupPreviewRow {
+  excelRow: number;
+  status: SupRowStatus;
+  errorMsg?: string;
+  matchedId?: number;        // existing supplier id when status='update'
+  data: {
+    sup_code: string;
+    sup_sap_code: string;
+    supplier_name: string;
+    purchase: string;
+  };
+}
+
 function SuppliersPane() {
+  const { profile } = useAuth();
+  const isAdmin = profile?.role === 'admin' || profile?.role === 'qc_admin';
+
   const [rows, setRows] = useState<SupplierRow[]>([]);
   const [q, setQ] = useState('');
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Partial<SupplierRow> | null>(null);
   const [msg, setMsg] = useState('');
 
+  // Upload state
+  const [lastLog, setLastLog] = useState<SupplierUploadLog | null>(null);
+  const [fileName, setFileName] = useState('');
+  const [previewRows, setPreviewRows] = useState<SupPreviewRow[]>([]);
+  const [parsing, setParsing] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const load = async () => {
     setLoading(true);
     const { data } = await supabase.from('suppliers').select('*').order('sup_code').limit(2000);
     setRows((data as SupplierRow[]) || []);
+    const logRes = await supabase.from('supplier_upload_log').select('*').order('uploaded_at', { ascending: false }).limit(1);
+    setLastLog((logRes.data as SupplierUploadLog[])?.[0] || null);
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
@@ -133,15 +174,305 @@ function SuppliersPane() {
     await load();
   };
 
+  // ── Excel upload ────────────────────────────────────────────────────────
+  const handleFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    setImportMsg(null);
+    setParsing(true);
+    setPreviewRows([]);
+
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf);
+      // Prefer "Merged List" sheet (new format); otherwise first sheet
+      const sheetName = wb.SheetNames.find(n => n.toLowerCase().includes('merged'))
+        || wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const sheetRows = XLSX.utils.sheet_to_json<any>(ws, { header: 1, defval: '' }) as any[][];
+
+      // Find header row — looks for one that contains both a sup-code-ish and a sap-code-ish header
+      const supCodeAliases = ['supcode', 'sup code', 'sup_code'];
+      const sapAliases = ['sup sap code', 'sup_sap_code', 'sap code', 'vendor code', 'vendor sap code'];
+      const nameAliases = ['supplier', 'supplier name', 'sup_name'];
+      const purchaseAliases = ['purchase', 'type', 'import/local'];
+
+      const norm = (c: any) => String(c).replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+
+      let headerIdx = -1;
+      for (let i = 0; i < Math.min(sheetRows.length, 30); i++) {
+        const row = (sheetRows[i] || []).map(norm);
+        const hasSap = row.some(c => sapAliases.includes(c));
+        const hasName = row.some(c => nameAliases.includes(c));
+        if (hasSap && hasName) { headerIdx = i; break; }
+      }
+      if (headerIdx === -1) {
+        setImportMsg({ kind: 'err', text: 'ไม่พบหัวคอลัมน์ Supplier ในไฟล์ (ต้องมี "Sup sap Code" และ "Supplier")' });
+        return;
+      }
+
+      const headers = (sheetRows[headerIdx] || []).map(norm);
+      const findCol = (...aliases: string[]) => {
+        for (const a of aliases) {
+          const i = headers.indexOf(a.toLowerCase());
+          if (i !== -1) return i;
+        }
+        return -1;
+      };
+      const colSupCode  = findCol(...supCodeAliases);
+      const colSap      = findCol(...sapAliases);
+      const colName     = findCol(...nameAliases);
+      const colPurchase = findCol(...purchaseAliases);
+
+      // Index existing DB rows by sap (preferred) and sup_code (fallback)
+      const bySap = new Map<string, SupplierRow>();
+      const byCode = new Map<string, SupplierRow>();
+      rows.forEach(r => {
+        if (r.sup_sap_code) bySap.set(String(r.sup_sap_code).trim(), r);
+        if (r.sup_code)     byCode.set(String(r.sup_code).trim(), r);
+      });
+
+      const seenInFile = new Set<string>();
+      const preview: SupPreviewRow[] = [];
+
+      for (let i = headerIdx + 1; i < sheetRows.length; i++) {
+        const row = sheetRows[i];
+        if (!row || row.every((c: any) => c === '' || c == null)) continue;
+
+        const supCode  = colSupCode  >= 0 ? String(row[colSupCode]  ?? '').trim() : '';
+        const supSap   = colSap      >= 0 ? String(row[colSap]      ?? '').trim() : '';
+        const supName  = colName     >= 0 ? String(row[colName]     ?? '').trim() : '';
+        const purchase = colPurchase >= 0 ? String(row[colPurchase] ?? '').trim() : '';
+
+        let status: SupRowStatus;
+        let errorMsg: string | undefined;
+        let matchedId: number | undefined;
+
+        if (!supSap) {
+          status = 'error';
+          errorMsg = 'Missing SAP Code';
+        } else if (!supName) {
+          status = 'error';
+          errorMsg = 'Missing Supplier Name';
+        } else if (seenInFile.has(supSap)) {
+          status = 'error';
+          errorMsg = 'Duplicate SAP Code in file';
+        } else {
+          seenInFile.add(supSap);
+          // Match by sap first (preferred), then sup_code fallback
+          const existing = bySap.get(supSap) || (supCode ? byCode.get(supCode) : undefined);
+          if (existing) { status = 'update'; matchedId = existing.id; }
+          else          { status = 'new'; }
+        }
+
+        preview.push({
+          excelRow: i + 1,
+          status,
+          errorMsg,
+          matchedId,
+          data: { sup_code: supCode, sup_sap_code: supSap, supplier_name: supName, purchase }
+        });
+      }
+
+      setPreviewRows(preview);
+    } catch (err: any) {
+      setImportMsg({ kind: 'err', text: 'อ่านไฟล์ไม่สำเร็จ: ' + (err?.message || err) });
+    } finally {
+      setParsing(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const cancelImport = () => {
+    setPreviewRows([]);
+    setFileName('');
+    setImportMsg(null);
+  };
+
+  const summary = useMemo(() => ({
+    total: previewRows.length,
+    newCount: previewRows.filter(r => r.status === 'new').length,
+    updateCount: previewRows.filter(r => r.status === 'update').length,
+    errorCount: previewRows.filter(r => r.status === 'error').length,
+  }), [previewRows]);
+
+  const confirmImport = async () => {
+    if (!previewRows.length || !isAdmin) return;
+    setImporting(true);
+    setImportMsg(null);
+    const userName = profile?.full_name || profile?.email || 'unknown';
+
+    let insOk = 0, updOk = 0;
+    const errors: string[] = [];
+
+    // Updates first (existing rows): patch only the 4 columns from Excel — preserve category/status
+    const updates = previewRows.filter(r => r.status === 'update');
+    for (const r of updates) {
+      const patch: any = {
+        sup_code: r.data.sup_code || r.data.sup_sap_code,    // keep DB not-null constraint happy
+        sup_sap_code: r.data.sup_sap_code,
+        supplier_name: r.data.supplier_name,
+        purchase: r.data.purchase || null,
+        updated_by: userName,
+      };
+      const { error } = await supabase.from('suppliers').update(patch).eq('id', r.matchedId!);
+      if (error) errors.push(`Row ${r.excelRow}: ${error.message}`);
+      else updOk++;
+    }
+
+    // Inserts (new rows): default status=ACTIVE, category=null
+    const inserts = previewRows.filter(r => r.status === 'new').map(r => ({
+      sup_code: r.data.sup_code || r.data.sup_sap_code,
+      sup_sap_code: r.data.sup_sap_code,
+      supplier_name: r.data.supplier_name,
+      category: null,
+      status: 'ACTIVE',
+      purchase: r.data.purchase || null,
+      updated_by: userName,
+    }));
+    if (inserts.length) {
+      const CHUNK = 500;
+      for (let i = 0; i < inserts.length; i += CHUNK) {
+        const slice = inserts.slice(i, i + CHUNK);
+        const { error } = await supabase.from('suppliers').insert(slice);
+        if (error) errors.push(`Insert chunk @${i}: ${error.message}`);
+        else insOk += slice.length;
+      }
+    }
+
+    // Log row (best-effort — don't fail import if log insert fails)
+    await supabase.from('supplier_upload_log').insert({
+      file_name: fileName,
+      uploaded_by: userName,
+      total_rows: summary.total,
+      inserted_count: insOk,
+      updated_count: updOk,
+      error_count: summary.errorCount + errors.length,
+    });
+
+    setImporting(false);
+    if (errors.length) {
+      setImportMsg({ kind: 'err', text: `นำเข้าบางส่วนล้มเหลว — New: ${insOk}, Updated: ${updOk}, Errors: ${errors.length}\n${errors.slice(0, 3).join('\n')}` });
+    } else {
+      setImportMsg({ kind: 'ok', text: `✓ นำเข้าสำเร็จ — New: ${insOk}, Updated: ${updOk}, Errors in file: ${summary.errorCount}` });
+    }
+    setPreviewRows([]);
+    setFileName('');
+    await load();
+  };
+
   return (
-    <section className="card">
-      <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
+    <section className="card space-y-4">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <h2 className="font-display font-bold text-lg">Suppliers ({rows.length})</h2>
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-2 items-center flex-wrap">
           <input className="field-input max-w-sm" placeholder="ค้นหา Sup Code, SAP, ชื่อ…" value={q} onChange={e => setQ(e.target.value)} />
+          {isAdmin && (
+            <>
+              <input ref={fileInputRef} type="file" accept=".xlsx" className="hidden" onChange={handleFile} />
+              <button type="button" onClick={() => fileInputRef.current?.click()}
+                disabled={parsing || importing}
+                className="btn-secondary text-sm">
+                {parsing ? 'กำลังอ่าน…' : '📤 Upload Excel'}
+              </button>
+            </>
+          )}
           <button className="btn-primary text-sm" onClick={() => setEditing({ status: 'ACTIVE', purchase: 'Import' })}>+ เพิ่ม / Add Supplier</button>
         </div>
       </div>
+
+      {/* Last upload info */}
+      <div className="rounded-lg bg-surface-low p-3 text-sm">
+        {lastLog ? (
+          <span className="text-on-surface-variant">
+            <span className="text-[11px] uppercase tracking-wide mr-1">Last Upload:</span>
+            <b className="text-on-surface">{fmtDate(lastLog.uploaded_at)}</b>
+            <span className="text-on-surface-variant"> {new Date(lastLog.uploaded_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}</span>
+            <span className="mx-1">·</span>
+            <span>by <b className="text-on-surface">{lastLog.uploaded_by}</b></span>
+            <span className="mx-1">·</span>
+            <span>{lastLog.file_name}</span>
+            <span className="mx-1">·</span>
+            <span className="chip text-[10px] bg-primary-container text-on-primary-container">+{lastLog.inserted_count} new</span>
+            <span className="chip text-[10px] bg-amber-100 text-amber-800 ml-1">~{lastLog.updated_count} updated</span>
+            {lastLog.error_count > 0 && <span className="chip text-[10px] bg-error-container text-error ml-1">{lastLog.error_count} errors</span>}
+          </span>
+        ) : (
+          <span className="text-on-surface-variant">ยังไม่มีประวัติการอัปโหลด / No upload history yet</span>
+        )}
+      </div>
+
+      {importMsg && (
+        <div className={`rounded-md px-4 py-3 text-sm whitespace-pre-wrap ${importMsg.kind === 'ok' ? 'bg-primary-container text-on-primary-container' : 'bg-error-container text-error'}`}>
+          {importMsg.text}
+        </div>
+      )}
+
+      {/* Preview Section */}
+      {previewRows.length > 0 && (
+        <section className="border border-outline-variant rounded-lg p-4 space-y-3 bg-surface-lowest">
+          <div className="flex items-baseline justify-between gap-3 flex-wrap">
+            <div>
+              <h3 className="font-display font-bold text-base">ตรวจสอบก่อนนำเข้า / Preview Before Import</h3>
+              <p className="text-xs text-on-surface-variant mt-0.5">ไฟล์: <b className="text-on-surface">{fileName}</b></p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={cancelImport} disabled={importing} className="btn-secondary text-sm">ยกเลิก</button>
+              <button onClick={confirmImport} disabled={importing || summary.newCount + summary.updateCount === 0} className="btn-primary text-sm">
+                {importing ? 'กำลังนำเข้า…' : `✓ ยืนยันนำเข้า (${summary.newCount + summary.updateCount})`}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex gap-2 flex-wrap text-xs">
+            <span className="chip">Total: <b className="ml-1">{summary.total}</b></span>
+            <span className="chip bg-primary-container text-on-primary-container">🟢 New: <b className="ml-1">{summary.newCount}</b></span>
+            <span className="chip bg-amber-100 text-amber-800">🟡 Update: <b className="ml-1">{summary.updateCount}</b></span>
+            {summary.errorCount > 0 && <span className="chip bg-error-container text-error">🔴 Error: <b className="ml-1">{summary.errorCount}</b></span>}
+          </div>
+
+          <div className="overflow-x-auto rounded-md border border-outline-variant/30 max-h-[400px] overflow-y-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-surface-mid sticky top-0 z-10">
+                <tr className="text-left text-[11px] uppercase tracking-wide text-on-surface-variant">
+                  <th className="px-3 py-2 w-14">Row</th>
+                  <th className="px-3 py-2 w-24">Status</th>
+                  <th className="px-3 py-2">Sup Code</th>
+                  <th className="px-3 py-2">SAP</th>
+                  <th className="px-3 py-2">Supplier Name</th>
+                  <th className="px-3 py-2">Purchase</th>
+                </tr>
+              </thead>
+              <tbody>
+                {previewRows.slice(0, 50).map((r, i) => (
+                  <tr key={i} className={`border-t border-outline-variant/15 ${
+                    r.status === 'new' ? 'bg-primary-container/30' :
+                    r.status === 'update' ? 'bg-amber-50' :
+                    'bg-error-container/40'
+                  }`}>
+                    <td className="px-3 py-1.5 text-on-surface-variant text-xs">{r.excelRow}</td>
+                    <td className="px-3 py-1.5">
+                      {r.status === 'new' && <span className="chip text-[10px] bg-primary-container text-on-primary-container">🟢 New</span>}
+                      {r.status === 'update' && <span className="chip text-[10px] bg-amber-100 text-amber-800">🟡 Update</span>}
+                      {r.status === 'error' && <span className="chip text-[10px] bg-error-container text-error" title={r.errorMsg}>🔴 {r.errorMsg}</span>}
+                    </td>
+                    <td className="px-3 py-1.5 font-mono">{r.data.sup_code || <span className="text-on-surface-variant italic">—</span>}</td>
+                    <td className="px-3 py-1.5 font-mono">{r.data.sup_sap_code || <span className="text-error italic">—</span>}</td>
+                    <td className="px-3 py-1.5">{r.data.supplier_name}</td>
+                    <td className="px-3 py-1.5"><span className="chip text-[10px]">{r.data.purchase || '—'}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {previewRows.length > 50 && (
+              <div className="px-3 py-2 text-xs text-on-surface-variant border-t border-outline-variant/15 bg-surface-low">
+                แสดง 50 แถวแรกจากทั้งหมด {previewRows.length} แถว
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {loading ? <p className="text-sm text-on-surface-variant">กำลังโหลด…</p> : (
         <div className="max-h-[60vh] overflow-auto">

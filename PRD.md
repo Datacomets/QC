@@ -1,8 +1,8 @@
 # Product Requirements Document (PRD)
 # QC Inspection — ระบบสุ่มตรวจคุณภาพ
 
-**Version:** 2.5.0
-**Last Updated:** 25 พฤษภาคม 2026
+**Version:** 2.5.1
+**Last Updated:** 3 มิถุนายน 2026
 **Owner:** Comets Intertrade Co., Ltd.
 **Status:** Active (Production)
 **Live URL:** https://web-mocha-three-44.vercel.app
@@ -770,6 +770,40 @@
 ---
 
 ## 13. Release Notes
+
+### v2.5.1 — 3 มิถุนายน 2026
+- **PCM/PUR fields** (master-info)
+  - DB columns added via `patch-22` (`qc_orders.pcm`, `qc_orders.pur` — both nullable text)
+  - UI: dropdown รายชื่อจาก `รายชื่อฝ่ายจัดซื้อ01.06.26.xlsx` + "อื่นๆ (พิมพ์เอง)" → text input
+  - PCM list (9 ชื่อ) / PUR list (5 ชื่อ) เก็บเป็น constants ใน `web/src/lib/utils.ts`
+  - แสดง PCM + PUR ใน History detail popup, QCEdit form
+- **PCM/PUR conditional rendering** — แสดงตามประเภทของ Supplier เท่านั้น
+  - Supplier = **Import** → แสดงเฉพาะ **PCM** (ซ่อน PUR)
+  - Supplier = **Local**  → แสดงเฉพาะ **PUR** (ซ่อน PCM)
+  - ยังไม่เลือก Supplier / supplier kind อื่น → ซ่อนทั้งคู่
+  - เปลี่ยน Supplier → ฝั่งที่ไม่ใช้ถูก clear อัตโนมัติ
+  - บันทึก → ฝั่งที่ไม่ใช้ถูก force เป็น `null` ใน DB
+  - `OrderDraft.supplier_purchase` (frontend-only) ส่งจาก QCEntry → SuccessModal เพื่อ derive ฝั่งที่ต้อง render
+  - QCEdit ดึง `purchase` จากตาราง `suppliers` ตาม `sup_code` ตอน load order
+- **Sup Code position** — ย้าย "รหัสผู้จัดจำหน่าย / Sup Code" ขึ้นก่อน PCM/PUR ใน QC Entry (flow: เลือก Supplier ก่อน → ระบบรู้ว่า Import/Local → ค่อยขึ้นช่อง PCM หรือ PUR)
+- **Brand Standard normalization** (one-time migration)
+  - `scripts/normalize-brand-standard.mjs` — ปรับ `materials.brand` และ `brand_responsibilities.brand` ให้ตรงกับ `Company Brand Standard.xlsx`
+  - `~4,580` rows ใน materials เปลี่ยน (beW → BEWILD, 2P → 2P ORIGINAL, MERREZCA → MERREZ'CA, S2S → SIS2SIS, MT → MISTINE, BABYGLAM → BABY GLAM, ...)
+  - `brand_responsibilities`: 12 updated, 8 duplicate rows ลบทิ้ง
+- **Sales normalization** (one-time migration)
+  - `scripts/normalize-sales-by-customer.mjs` — ปรับ `materials.sales` (5,534 rows) และ `brand_responsibilities.sales` (60 rows) ตาม `Sales_Customer x Sales.xlsx`
+- **Sales follow-up** (one-time migration)
+  - `scripts/sales-followup.mjs` — INSERT 88 brand ใหม่จาก Sales Excel ที่ยังไม่มีใน `brand_responsibilities`
+  - UPDATE `qc_orders.sales` เฉพาะ orders ที่ `order_date >= 2026-03-26` (6 historical orders updated)
+- **Users CSV cleanup** — ตัด suffix `@cometsintertrade.com` ออกจาก 5 employee-ID users (`11181`, `10503`, `11045`, `11262`, `11379`) ใน `users-passwords.csv` ให้ตรงกับสิ่งที่ user พิมพ์จริงตอน Login (Login.tsx เติม `@cometsintertrade.com` ให้อัตโนมัติ)
+- **Supplier Upload Excel** (Admin → Suppliers)
+  - ปุ่ม "📤 Upload Excel" ใน `SuppliersPane` (admin/qc_admin เท่านั้น)
+  - Auto-detect sheet "Merged List" → fallback first sheet · มองหา header `Supcode` / `Sup sap Code` / `Supplier` / `Purchase`
+  - Preview ก่อน import — สถานะ New / Update / Error (match by sup_sap_code ก่อน → fallback sup_code)
+  - Update เปลี่ยนเฉพาะ `sup_code / supplier_name / purchase` — ไม่ทับ `category` / `status`
+  - Validation: error เมื่อขาด SAP Code, ขาด Supplier Name, หรือ SAP ซ้ำในไฟล์
+  - `patch-23` — ตารางใหม่ `supplier_upload_log` + คอลัมน์ audit `updated_at` / `updated_by` ใน `suppliers` (trigger touch) + RLS
+- DB patches: 23
 
 ### v2.5.0 — 25 พฤษภาคม 2026
 - **Login by Employee ID** — รับค่า user เป็นรหัสพนักงาน (ไม่ต้องพิมพ์เต็ม email); ระบบเติม `@cometsintertrade.com` ให้อัตโนมัติเมื่อค่าไม่มี `@`. Label เปลี่ยน "อีเมล / Email" → "User".

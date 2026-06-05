@@ -1,7 +1,7 @@
 # User Stories — QC Inspection Web App
 
-**Version:** 2.5.0
-**Last Updated:** 25 พฤษภาคม 2026
+**Version:** 2.5.1
+**Last Updated:** 3 มิถุนายน 2026
 **Companion to:** [PRD.md](PRD.md)
 
 ---
@@ -517,6 +517,29 @@ US-XX: As a [role], I want [action], so that [benefit]
 - Validation: ถ้าเว้น Supplier Name → "กรุณากรอกชื่อ Supplier"; ถ้าเว้น SAP Code → "กรุณากรอก SAP Code"
 - ก่อน v2.3.2: Sup Code เป็น required, SAP Code เป็น optional (สลับกัน)
 
+### US-901.1: อัปโหลด Supplier list จาก Excel 🛡️👑 (v2.5.1)
+**As a** admin/qc_admin, **I want to** อัปโหลดไฟล์ Excel (`Merged_Vendor_Supplier_List`) เพื่อ batch upsert Suppliers **so that** ไม่ต้องเพิ่ม/แก้ไขทีละแถวเมื่อมีการอัปเดต Vendor List
+
+**Acceptance Criteria:**
+- ปุ่ม "📤 Upload Excel" ใน Admin → Suppliers (admin/qc_admin เท่านั้น)
+- Auto-detect sheet "Merged List" → fallback first sheet
+- Auto-detect header row (สแกน ≤30 แถวแรก) มองหา `Sup sap Code` + `Supplier` พร้อมกัน
+- Column aliases:
+  - **Supcode** — `supcode`, `sup code`, `sup_code`
+  - **SAP** — `sup sap code`, `sup_sap_code`, `sap code`, `vendor code`, `vendor sap code`
+  - **Supplier Name** — `supplier`, `supplier name`, `sup_name`
+  - **Purchase** — `purchase`, `type`, `import/local`
+- Preview สถานะ per-row:
+  - 🟢 **New** — ไม่พบ match ใน DB (ไม่มีทั้ง sup_sap_code และ sup_code ตรงกัน)
+  - 🟡 **Update** — match by sup_sap_code (preferred) หรือ sup_code (fallback)
+  - 🔴 **Error** — ขาด SAP Code / ขาด Supplier Name / SAP ซ้ำในไฟล์
+- Summary chip + ตาราง preview 50 แถวแรก
+- กด "ยืนยันนำเข้า":
+  - Update — เปลี่ยนเฉพาะ `sup_code / sup_sap_code / supplier_name / purchase / updated_by` (ไม่ทับ `category` / `status`)
+  - Insert — `status='ACTIVE'`, `category=null`
+- บันทึกผลลง `supplier_upload_log` (file_name / total / inserted / updated / errors)
+- DB columns audit ใหม่: `suppliers.updated_at` (trigger touch) / `suppliers.updated_by` (patch-23)
+
 ### US-902: จัดการ Defect Codes 🛡️👑
 **As a** admin/qc_admin, **I want to** เพิ่ม/แก้ไข/ลบ รหัสของเสีย พร้อม Type / Reason
 
@@ -835,15 +858,79 @@ US-XX: As a [role], I want [action], so that [benefit]
 
 ---
 
+## Epic 18 — PCM/PUR Buyer Tagging (v2.5.1)
+
+### US-1801: บันทึก PCM และ PUR กับ Order
+**As an** operator, **I want to** เลือกชื่อ PCM (สำหรับ Import) หรือ PUR (สำหรับ Local) ติดกับ Order **so that** ทราบว่าฝ่ายจัดซื้อคนไหนเป็นผู้รับผิดชอบสินค้านี้
+
+**Acceptance Criteria:**
+- DB columns ใหม่: `qc_orders.pcm`, `qc_orders.pur` (patch-22, both nullable text)
+- UI dropdown — รายชื่อจาก `รายชื่อฝ่ายจัดซื้อ01.06.26.xlsx`
+  - PCM: 9 ชื่อ (เดือนเพ็ญ, พัณณ์ภัสร์, ปาลิตา, ธัญชนก, นิชนันท์, วัชราภรณ์ สุดใจ, อัจฉราภรณ์, ยศวดี, สุปราณี)
+  - PUR: 5 ชื่อ (วัชราภรณ์ รักษ์วงษ์, สุพัตรา, ณัฐฐาพร, น้ำเพชร, กาญจนา)
+- ตัวเลือก "อื่นๆ (พิมพ์เอง)" → text input โผล่ขึ้นใต้ dropdown
+- ค่าถูกเก็บใน DB และแสดงใน History detail popup + ใช้ในหน้า QCEdit
+
+### US-1802: PCM/PUR แสดงตามประเภท Supplier
+**As an** operator, **I want to** เห็นเฉพาะช่อง PCM หรือ PUR ที่ตรงกับประเภทของ Supplier เท่านั้น **so that** กรอกไม่ผิดฝั่ง
+
+**Acceptance Criteria:**
+- Supplier = **Import** → แสดงเฉพาะช่อง PCM (ซ่อน PUR)
+- Supplier = **Local** → แสดงเฉพาะช่อง PUR (ซ่อน PCM)
+- ยังไม่เลือก Supplier หรือ supplier kind อื่น → ซ่อนทั้งสองช่อง
+- เปลี่ยน Supplier — ฝั่งที่ไม่ใช้ถูก clear อัตโนมัติ (ไม่ติดค่าค้าง)
+- ตอนบันทึก — ฝั่งที่ไม่ใช้ถูก force เป็น `null` ใน DB
+- ใช้ logic เดียวกันใน QCEntry + SuccessModal + QCEdit
+- QCEdit ดึง `purchase` จาก `suppliers` table ตาม `sup_code` ตอน load order
+
+### US-1803: Sup Code อยู่ก่อน PCM/PUR
+**As an** operator, **I want to** เลือก Supplier ก่อน แล้วค่อยเห็นช่อง PCM/PUR ขึ้นมา **so that** flow การกรอกข้อมูลเป็นธรรมชาติ
+
+**Acceptance Criteria:**
+- ลำดับใน QC Entry master-info: Brand → Sales → SCM → **Sup Code** → **PCM / PUR** → Lot No. → ...
+- ช่อง PCM/PUR ไม่แสดงจนกว่าจะเลือก Supplier ที่มีค่า purchase = Import หรือ Local
+
+---
+
+## Epic 19 — Data Quality & Migration (v2.5.1)
+
+### US-1901: ชื่อ Brand ตรงตาม Company Brand Standard
+**As an** admin, **I want to** ชื่อ Brand ใน DB ตรงกับ `Company Brand Standard.xlsx` **so that** การ join material → brand_responsibilities ไม่หลุดเพราะตัวสะกดต่างกัน
+
+**Acceptance Criteria:**
+- One-time migration: `scripts/normalize-brand-standard.mjs`
+- `materials.brand`: ~4,580 rows updated (ตัวอย่าง: beW → BEWILD, 2P → 2P ORIGINAL, MERREZCA → MERREZ'CA, S2S → SIS2SIS, MT → MISTINE, BABYGLAM → BABY GLAM)
+- `brand_responsibilities.brand`: 12 updated + 8 duplicate ลบทิ้ง
+- หลัง migrate — ทุก material row link ไปยัง brand_responsibilities ที่ถูกต้องผ่าน brand exact match
+
+### US-1902: ชื่อ Sales ตรงตาม Sales Customer Mapping
+**As an** admin, **I want to** ชื่อ Sales ใน DB ตรงกับ `Sales_Customer x Sales.xlsx` **so that** Order ที่บันทึกใหม่เห็นชื่อ Sales ที่ถูกต้อง
+
+**Acceptance Criteria:**
+- One-time migration: `scripts/normalize-sales-by-customer.mjs`
+- `materials.sales`: 5,534 rows updated
+- `brand_responsibilities.sales`: 60 rows updated
+
+### US-1903: เพิ่ม Brand ใหม่ + อัปเดต Sales ของ Order ใหม่
+**As an** admin, **I want to** เพิ่ม Brand ที่อยู่ใน Sales Excel แต่ยังไม่มีใน `brand_responsibilities` และอัปเดตชื่อ Sales ของ Order เฉพาะวันที่ ≥ 26 มี.ค. 2026 **so that** ข้อมูลย้อนหลังไม่ถูกเปลี่ยนผิดบริบท
+
+**Acceptance Criteria:**
+- One-time migration: `scripts/sales-followup.mjs`
+- INSERT 88 brand ใหม่เข้า `brand_responsibilities`
+- UPDATE `qc_orders.sales` เฉพาะ `order_date >= 2026-03-26` (6 historical orders updated)
+- Order ที่เก่ากว่านั้นไม่ถูกแตะ (เก็บ history ตามที่บันทึกตอนนั้น)
+
+---
+
 ## Acceptance Criteria Tagging Convention
 
 | Tag | Meaning |
 |---|---|
-| ✅ | Implemented & deployed in v2.5.0 |
+| ✅ | Implemented & deployed in v2.5.1 |
 | 🚧 | In progress |
 | 📋 | Backlog (future phases) |
 
-> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.5.0) ยกเว้นที่ระบุไว้
+> ทุก US ในเอกสารนี้คือ ✅ (deployed v2.5.1) ยกเว้นที่ระบุไว้
 
 ---
 
