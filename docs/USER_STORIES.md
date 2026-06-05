@@ -530,9 +530,10 @@ US-XX: As a [role], I want [action], so that [benefit]
   - **Supplier Name** — `supplier`, `supplier name`, `sup_name`
   - **Purchase** — `purchase`, `type`, `import/local`
 - Preview สถานะ per-row:
-  - 🟢 **New** — ไม่พบ match ใน DB (ไม่มีทั้ง sup_sap_code และ sup_code ตรงกัน)
-  - 🟡 **Update** — match by sup_sap_code (preferred) หรือ sup_code (fallback)
-  - 🔴 **Error** — ขาด SAP Code / ขาด Supplier Name / SAP ซ้ำในไฟล์
+  - 🟢 **New** — ไม่พบ match ใน DB
+  - 🟡 **Update** — match by `sup_code` (preferred — DB unique key) หรือ `sup_sap_code` (fallback เฉพาะกรณี Excel Supcode ว่าง)
+  - 🔴 **Error** — ขาด SAP Code / ขาด Supplier Name / Sup Code (หรือ SAP fallback) ซ้ำในไฟล์
+- **Trader pattern support** — รองรับกรณี SAP เดียวกัน + Sup Code ต่างกัน (เช่น HUAYI CORPORATION ใช้ SAP `10000148` ร่วมกัน 23 sub-suppliers, sup_code = "7S / 5U", "2Y / 5U", ...) ทุกแถวจะ import เป็นคนละราย เพราะ dedup ที่ `sup_code` ไม่ใช่ `sup_sap_code`
 - Summary chip + ตาราง preview 50 แถวแรก
 - กด "ยืนยันนำเข้า":
   - Update — เปลี่ยนเฉพาะ `sup_code / sup_sap_code / supplier_name / purchase / updated_by` (ไม่ทับ `category` / `status`)

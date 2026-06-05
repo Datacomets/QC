@@ -799,9 +799,10 @@
 - **Supplier Upload Excel** (Admin → Suppliers)
   - ปุ่ม "📤 Upload Excel" ใน `SuppliersPane` (admin/qc_admin เท่านั้น)
   - Auto-detect sheet "Merged List" → fallback first sheet · มองหา header `Supcode` / `Sup sap Code` / `Supplier` / `Purchase`
-  - Preview ก่อน import — สถานะ New / Update / Error (match by sup_sap_code ก่อน → fallback sup_code)
-  - Update เปลี่ยนเฉพาะ `sup_code / supplier_name / purchase` — ไม่ทับ `category` / `status`
-  - Validation: error เมื่อขาด SAP Code, ขาด Supplier Name, หรือ SAP ซ้ำในไฟล์
+  - Preview ก่อน import — สถานะ New / Update / Error
+  - **Dedup + match by `sup_code`** (DB unique key) → fallback `sup_sap_code` เฉพาะกรณี Excel `Supcode` ว่าง (Local rows) — รองรับ **trader pattern** เช่น SAP `10000148` (HUAYI CORPORATION) ใช้ร่วมกัน 23 sub-suppliers แต่ Sup Code ต่างกัน ("7S / 5U", "2Y / 5U", ...) ทุกแถวต้อง import เป็นคนละราย
+  - Update เปลี่ยนเฉพาะ `sup_code / sup_sap_code / supplier_name / purchase / updated_by` — ไม่ทับ `category` / `status`
+  - Validation: error เมื่อขาด SAP Code, ขาด Supplier Name, หรือ Sup Code (หรือ SAP fallback) ซ้ำในไฟล์
   - `patch-23` — ตารางใหม่ `supplier_upload_log` + คอลัมน์ audit `updated_at` / `updated_by` ใน `suppliers` (trigger touch) + RLS
 - DB patches: 23
 
