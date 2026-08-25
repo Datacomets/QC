@@ -242,8 +242,15 @@ create policy "defects_admin_write" on public.defects for all
 
 -- QC orders: operators can read all, insert/update their own; admin/qc_admin full access
 create policy "qc_orders_read" on public.qc_orders for select using (auth.role() = 'authenticated');
+-- `viewer` (Production / PCM) may read everything but never record a QC run.
+-- Without the role test any authenticated user could POST straight to
+-- /rest/v1/qc_orders, and qc_orders_update_own below would then let them edit
+-- the row they just created. See patch-26-viewer-read-only.sql.
 create policy "qc_orders_insert" on public.qc_orders for insert
-  with check (auth.uid() = created_by);
+  with check (
+    auth.uid() = created_by
+    and public.current_role_level() is distinct from 'viewer'
+  );
 create policy "qc_orders_update_own" on public.qc_orders for update
   using (auth.uid() = created_by or public.current_role_level() in ('admin','qc_admin'))
   with check (auth.uid() = created_by or public.current_role_level() in ('admin','qc_admin'));

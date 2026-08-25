@@ -1551,9 +1551,16 @@ function NotifyRecipientsPane({ canEdit }: { canEdit: boolean }) {
 interface UserRow {
   id: string;
   email: string;
+  /** Login name. Derived from the auth email — QC staff share one real mailbox,
+   *  so the address is synthetic and only the code before "@" identifies a person. */
+  emp_code?: string | null;
   full_name: string | null;
   role: string;
 }
+
+const LOGIN_DOMAIN = 'cometsintertrade.com';
+const empCodeOf = (email?: string | null) => (email || '').split('@')[0];
+const codeOfRow = (r: Partial<UserRow>) => r.emp_code || empCodeOf(r.email);
 
 const DEFAULT_ROLES = ['admin', 'qc_admin', 'operator', 'viewer'];
 
@@ -1571,7 +1578,7 @@ function UsersPane() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<(Partial<UserRow> & { password?: string; _isNew?: boolean }) | null>(null);
   const [msg, setMsg] = useState('');
-  const [pwBanner, setPwBanner] = useState<{ email: string; password: string } | null>(null);
+  const [pwBanner, setPwBanner] = useState<{ who: string; password: string } | null>(null);
 
   // Generate a random password (easy to read, ~12 chars, no confusing chars like 0/O/l/I)
   const generatePassword = () => {
@@ -1632,25 +1639,27 @@ function UsersPane() {
     setMsg('');
     try {
       const passwordSet = editing.password?.trim();
+      const empCode = (editing.emp_code || '').trim().toLowerCase();
       if (editing._isNew) {
-        if (!editing.email || !passwordSet || !editing.role) {
-          setMsg('กรอก Email, Password, Role'); return;
+        if (!empCode || !passwordSet || !editing.role) {
+          setMsg('กรอกรหัสพนักงาน, Password, Role'); return;
         }
         await apiCall('POST', {
-          email: editing.email, password: passwordSet,
+          emp_code: empCode, password: passwordSet,
           full_name: editing.full_name, role: editing.role
         });
       } else {
         const patch: any = { id: editing.id };
-        if (editing.email !== undefined) patch.email = editing.email;
+        // The API ignores this unless the code actually differs from the stored one.
+        if (empCode) patch.emp_code = empCode;
         if (passwordSet) patch.password = passwordSet;
         if (editing.full_name !== undefined) patch.full_name = editing.full_name;
         if (editing.role) patch.role = editing.role;
         await apiCall('PATCH', patch);
       }
       // Show banner with password (only if one was set)
-      if (passwordSet && editing.email) {
-        setPwBanner({ email: editing.email, password: passwordSet });
+      if (passwordSet && empCode) {
+        setPwBanner({ who: empCode, password: passwordSet });
       }
       setEditing(null);
       await load();
@@ -1658,7 +1667,7 @@ function UsersPane() {
   };
 
   const remove = async (u: UserRow) => {
-    if (!confirm(`ลบ ${u.email}?`)) return;
+    if (!confirm(`ลบ ${codeOfRow(u)}?`)) return;
     try {
       await apiCall('DELETE', null, `?id=${encodeURIComponent(u.id)}`);
       await load();
@@ -1687,7 +1696,7 @@ function UsersPane() {
             <span className="text-xl">🔑</span>
             <div className="flex-1 min-w-0">
               <div className="font-display font-bold text-sm text-amber-900">
-                รหัสผ่านใหม่ของ {pwBanner.email} ถูกตั้งแล้ว
+                รหัสผ่านใหม่ของ {pwBanner.who} ถูกตั้งแล้ว
               </div>
               <div className="text-xs text-amber-800 mt-0.5">
                 ⚠️ <b>จดหรือ copy ตอนนี้</b> — เมื่อปิด banner รหัสจะไม่แสดงอีก (Supabase เก็บเป็น hash)
@@ -1710,18 +1719,18 @@ function UsersPane() {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs uppercase tracking-wide text-on-surface-variant">
-              <th className="py-2">Name</th><th>Email</th><th>Role</th>{isAdmin && <th></th>}
+              <th className="py-2">Name</th><th>รหัสพนักงาน</th><th>Role</th>{isAdmin && <th></th>}
             </tr>
           </thead>
           <tbody>
             {rows.map(r => (
               <tr key={r.id} className="border-t border-outline-variant/15 hover:bg-surface-low/30">
                 <td className="py-2">{r.full_name || '—'}</td>
-                <td className="font-mono text-xs">{r.email}</td>
+                <td className="font-mono text-xs">{codeOfRow(r)}</td>
                 <td><span className="chip chip-active">{r.role}</span></td>
                 {isAdmin && (
                   <td className="text-right whitespace-nowrap">
-                    <button className="btn-tertiary text-xs py-1 px-2" onClick={() => setEditing({ ...r })}>แก้ไข</button>
+                    <button className="btn-tertiary text-xs py-1 px-2" onClick={() => setEditing({ ...r, emp_code: codeOfRow(r) })}>แก้ไข</button>
                     {r.id !== me?.id && (
                       <button className="text-xs text-error hover:underline ml-2" onClick={() => remove(r)}>ลบ</button>
                     )}
@@ -1734,15 +1743,28 @@ function UsersPane() {
       )}
 
       {editing && (
-        <EditModal title={editing._isNew ? 'เพิ่ม User' : `แก้ไข User: ${editing.email}`} onClose={() => { setEditing(null); setMsg(''); }}>
+        <EditModal title={editing._isNew ? 'เพิ่ม User' : `แก้ไข User: ${codeOfRow(editing)}`} onClose={() => { setEditing(null); setMsg(''); }}>
           <form onSubmit={save} className="space-y-4">
+            <div>
+              <Field
+                label={editing._isNew ? 'รหัสพนักงาน / Employee ID *' : 'รหัสพนักงาน / Employee ID'}
+                value={editing.emp_code}
+                onChange={v => setEditing({ ...editing, emp_code: v })}
+                placeholder="เช่น qc_03"
+              />
+              <p className="text-[11px] text-on-surface-variant mt-1">
+                ใช้รหัสนี้เข้าสู่ระบบ — ไม่ต้องใช้อีเมล ทำให้ QC ที่ใช้เมลเดียวกันมีบัญชีแยกกันได้
+                {(editing.emp_code || '').trim() && (
+                  <> · บัญชีภายใน: <span className="font-mono">{(editing.emp_code || '').trim().toLowerCase()}@{editing.email?.split('@')[1] || LOGIN_DOMAIN}</span></>
+                )}
+              </p>
+            </div>
             <Field
-              label={editing._isNew ? 'Email *' : 'Email'}
-              value={editing.email}
-              onChange={v => setEditing({ ...editing, email: v })}
-              placeholder="user@cometsintertrade.com"
+              label="ชื่อ-นามสกุล-ชื่อเล่น / Full Name"
+              value={editing.full_name}
+              onChange={v => setEditing({ ...editing, full_name: v })}
+              placeholder="ธิดารัตน์_จันทร์เดช_เบลล์"
             />
-            <Field label="Full Name" value={editing.full_name} onChange={v => setEditing({ ...editing, full_name: v })} />
             <RoleSelect
               value={editing.role || 'operator'}
               extraOptions={rows.map(r => r.role).filter(Boolean)}

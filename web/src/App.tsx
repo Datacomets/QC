@@ -10,11 +10,15 @@ import Dashboard from './pages/Dashboard';
 import Materials from './pages/Materials';
 import Shell from './components/Shell';
 
-function Protected({ children, roles }: { children: JSX.Element; roles?: string[] }) {
+/** `roles` is an allow-list; `deny` a block-list. Prefer `deny` for read-only
+ *  restrictions so a custom role added later keeps write access by default
+ *  instead of silently losing it. */
+function Protected({ children, roles, deny }: { children: JSX.Element; roles?: string[]; deny?: string[] }) {
   const { profile, loading } = useAuth();
   if (loading) return <div className="p-8 text-on-surface-variant">กำลังโหลด…</div>;
   if (!profile) return <Navigate to="/login" replace />;
   if (roles && !roles.includes(profile.role)) return <Navigate to="/" replace />;
+  if (deny && deny.includes(profile.role)) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -25,9 +29,9 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route element={<Protected><Shell /></Protected>}>
           <Route path="/" element={<History />} />
-          <Route path="/entry" element={<QCEntry />} />
+          <Route path="/entry" element={<Protected deny={['viewer']}><QCEntry /></Protected>} />
           <Route path="/guide" element={<Guide />} />
-          <Route path="/edit/:orderId" element={<QCEdit />} />
+          <Route path="/edit/:orderId" element={<Protected deny={['viewer']}><QCEdit /></Protected>} />
           <Route path="/dashboard" element={<Protected roles={['admin', 'qc_admin', 'viewer']}><Dashboard /></Protected>} />
           <Route path="/materials" element={<Materials />} />
           <Route path="/admin" element={<Protected roles={['admin', 'qc_admin']}><Admin /></Protected>} />

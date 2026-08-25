@@ -6,6 +6,20 @@ const SUPABASE_PUBLISHABLE_KEY =
   process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY!;
 const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY!;
 
+/* ---------------------------------------------------------------------------
+ * Employee-code identity
+ * QC staff share one real mailbox, so we never use a real address for auth.
+ * Supabase Auth still requires a unique email per user, so we synthesise one
+ * from the employee code: `qc_03` -> `qc_03@cometsintertrade.com`.
+ * Login.tsx already appends the same domain when the user types only a code.
+ * ------------------------------------------------------------------------- */
+const DEFAULT_DOMAIN = 'cometsintertrade.com';
+const EMP_CODE_RE = /^[A-Za-z0-9._-]{2,40}$/;
+const empCodeOf = (email?: string | null) => (email || '').split('@')[0];
+const domainOf  = (email?: string | null) => (email || '').split('@')[1] || DEFAULT_DOMAIN;
+const toAuthEmail = (code: string, domain = DEFAULT_DOMAIN) =>
+  `${code.trim().toLowerCase()}@${domain}`;
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS (Vercel same-origin, but be safe)
   res.setHeader('Content-Type', 'application/json');
@@ -47,6 +61,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return {
           id: u.id,
           email: u.email,
+          emp_code: empCodeOf(u.email),
           full_name: p?.full_name || null,
           role: p?.role || 'operator',
           email_confirmed: !!u.email_confirmed_at,
@@ -57,16 +72,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'POST') {
-      const { email, password, full_name, role } = req.body as {
-        email: string; password: string; full_name: string; role: string;
+      const { emp_code, email: rawEmail, password, full_name, role } = req.body as {
+        emp_code?: string; email?: string; password: string; full_name: string; role: string;
       };
-      if (!email || !password || !role) return res.status(400).json({ error: 'Missing fields' });
+      const code = String(emp_code ?? empCodeOf(rawEmail) ?? '').trim().toLowerCase();
+      if (!code || !password || !role) {
+        return res.status(400).json({ error: 'กรอกรหัสพนักงาน, Password, Role' });
+      }
+      if (!EMP_CODE_RE.test(code)) {
+        return res.status(400).json({
+          error: 'รหัสพนักงานใช้ได้เฉพาะ a-z 0-9 . _ - (2-40 ตัว) / Invalid employee ID'
+        });
+      }
+      const email = toAuthEmail(code);
 
       const { data, error } = await admin.auth.admin.createUser({
         email, password, email_confirm: true,
         user_metadata: { full_name, role }
       });
-      if (error) return res.status(400).json({ error: error.message });
+      if (error) {
+        const dup = /already been registered|already exists/i.test(error.message);
+        return res.status(400).json({
+          error: dup ? `รหัสพนักงาน "${code}" ถูกใช้แล้ว / Employee ID already taken` : error.message
+        });
+      }
       await admin.from('profiles').upsert({
         id: data.user.id, email, full_name: full_name || null, role
       });
@@ -74,31 +103,49 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'PATCH') {
-      const { id, email, password, full_name, role } = req.body as {
-        id: string; email?: string; password?: string; full_name?: string; role?: string;
+      const { id, emp_code, email: rawEmail, password, full_name, role } = req.body as {
+        id: string; emp_code?: string; email?: string;
+        password?: string; full_name?: string; role?: string;
       };
       if (!id) return res.status(400).json({ error: 'Missing id' });
 
-      // Basic email validation if provided
-      if (email !== undefined) {
-        const trimmed = email.trim();
-        if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-          return res.status(400).json({ error: 'อีเมลไม่ถูกต้อง / Invalid email' });
+      // Current address decides whether the employee code actually changed.
+      // Re-sending an unchanged email makes Supabase reply
+      // "A user with this email address has already been registered".
+      const { data: cur } = await admin.auth.admin.getUserById(id);
+      const curEmail = (cur?.user?.email || '').toLowerCase();
+
+      const rawCode = emp_code ?? (rawEmail !== undefined ? empCodeOf(rawEmail) : undefined);
+      let nextEmail: string | undefined;
+      if (rawCode !== undefined) {
+        const code = String(rawCode).trim().toLowerCase();
+        if (!EMP_CODE_RE.test(code)) {
+          return res.status(400).json({
+            error: 'รหัสพนักงานใช้ได้เฉพาะ a-z 0-9 . _ - (2-40 ตัว) / Invalid employee ID'
+          });
         }
+        // Keep whatever domain the account already uses; only the code changes.
+        const candidate = toAuthEmail(code, domainOf(curEmail));
+        if (candidate !== curEmail) nextEmail = candidate;
       }
 
       const patch: any = {};
-      if (email) { patch.email = email.trim(); patch.email_confirm = true; }
+      if (nextEmail) { patch.email = nextEmail; patch.email_confirm = true; }
       if (password) patch.password = password;
       if (full_name !== undefined || role !== undefined) {
         patch.user_metadata = { full_name, role };
       }
       if (Object.keys(patch).length) {
         const { error } = await admin.auth.admin.updateUserById(id, patch);
-        if (error) return res.status(400).json({ error: error.message });
+        if (error) {
+          const dup = /already been registered|already exists/i.test(error.message);
+          return res.status(400).json({
+            error: dup ? `รหัสพนักงาน "${empCodeOf(nextEmail)}" ถูกใช้แล้ว / Employee ID already taken` : error.message
+          });
+        }
       }
       const profilePatch: any = {};
-      if (email !== undefined) profilePatch.email = email.trim();
+      if (nextEmail) profilePatch.email = nextEmail;
       if (full_name !== undefined) profilePatch.full_name = full_name;
       if (role !== undefined) profilePatch.role = role;
       if (Object.keys(profilePatch).length) {

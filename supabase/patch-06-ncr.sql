@@ -64,8 +64,12 @@ create trigger qc_orders_auto_ncr
 alter table public.ncr_reports enable row level security;
 
 create policy "ncr_read" on public.ncr_reports for select using (auth.role() = 'authenticated');
+-- `viewer` (Production / PCM) is read-only. See patch-26-viewer-read-only.sql.
 create policy "ncr_insert" on public.ncr_reports for insert
-  with check (auth.role() = 'authenticated');
+  with check (
+    auth.role() = 'authenticated'
+    and public.current_role_level() is distinct from 'viewer'
+  );
 create policy "ncr_update" on public.ncr_reports for update
   using (auth.uid() = created_by or public.current_role_level() in ('admin','qc_admin'))
   with check (auth.uid() = created_by or public.current_role_level() in ('admin','qc_admin'));

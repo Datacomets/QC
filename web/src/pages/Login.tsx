@@ -41,7 +41,7 @@ export default function Login() {
 
         <form onSubmit={submit} className="card space-y-5">
           <div>
-            <label className="field-label">User</label>
+            <label className="field-label">รหัสพนักงาน / Employee ID</label>
             <input type="text" required autoFocus className="field-input"
               value={email} onChange={e => setEmail(e.target.value)}
               placeholder="รหัสพนักงาน" />

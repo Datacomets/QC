@@ -6,6 +6,8 @@ export default function Shell() {
   const nav = useNavigate();
   const isAdmin = profile?.role === 'admin' || profile?.role === 'qc_admin';
   const canDashboard = isAdmin || profile?.role === 'viewer';
+  // Production/PCM viewers may read everything but never record or edit a QC run.
+  const canEntry = profile?.role !== 'viewer';
 
   return (
     <div className="min-h-screen bg-surface">
@@ -19,7 +21,9 @@ export default function Shell() {
         </Link>
         <nav className="flex items-center gap-1">
           <NavLink to="/" end className={({ isActive }) => `chip ${isActive ? 'chip-active' : ''}`}>ประวัติ / History</NavLink>
-          <NavLink to="/entry" className={({ isActive }) => `chip ${isActive ? 'chip-active' : ''}`}>บันทึก QC / Entry</NavLink>
+          {canEntry && (
+            <NavLink to="/entry" className={({ isActive }) => `chip ${isActive ? 'chip-active' : ''}`}>บันทึก QC / Entry</NavLink>
+          )}
           {canDashboard && (
             <NavLink to="/dashboard" className={({ isActive }) => `chip ${isActive ? 'chip-active' : ''}`}>Dashboard</NavLink>
           )}
