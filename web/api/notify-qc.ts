@@ -85,6 +85,15 @@ const FINAL_STATUSES = ['Accept', 'Accept Lot', 'Reject', 'ของเข้า
 const ICT = 'ของเข้า ICT';
 
 /**
+ * The NCR PDF the app renders in the browser when a Reject is saved.
+ *
+ * Generated client-side because that is where the NCR layout component lives;
+ * this endpoint only forwards it. Passed per-request rather than fetched,
+ * so a sweep — which has no browser — simply sends without one.
+ */
+type PdfAttachment = { filename: string; base64: string };
+
+/**
  * Which of the order's own responsible people are mailed, per status.
  *
  * This is the shape of the rule itself, not a preference, so it lives here
@@ -467,7 +476,8 @@ function buildMail(order: any, lines: Detail[], status: string, ratePct: number,
 async function processOrder(
   admin: any, people: Recipient[], order: any,
   transporter: nodemailer.Transporter | null,
-  triggeredBy: string | null, dryRun: boolean
+  triggeredBy: string | null, dryRun: boolean,
+  attachment: PdfAttachment | null = null
 ) {
   // Imported history is flagged so switching mail on cannot notify thousands of
   // orders closed months ago (patch-32). Checked before anything else.
@@ -529,6 +539,7 @@ async function processOrder(
       status, defect_pct: Number(ratePct.toFixed(2)),
       defect_check: check.status,
       recipients: list, skipped, subject,
+      attached_pdf: attachment ? attachment.filename : null,
       redirected_to: MAIL_ONLY_TO.length ? MAIL_ONLY_TO : null
     };
   }
@@ -564,6 +575,13 @@ async function processOrder(
       subject: redirected ? `[ทดสอบ] ${subject}` : subject,
       html: body,
       text: 'อีเมลนี้เป็น HTML กรุณาเปิดด้วยโปรแกรมที่รองรับ',
+      ...(attachment
+        ? { attachments: [{
+              filename: attachment.filename,
+              content: Buffer.from(attachment.base64, 'base64'),
+              contentType: 'application/pdf'
+            }] }
+        : {}),
       ...(isReply && order.mail_message_id
         ? { inReplyTo: order.mail_message_id, references: [order.mail_message_id] }
         : {})
@@ -575,7 +593,7 @@ async function processOrder(
     await admin.from('notification_send_log').insert({
       order_id: order.id, order_no: order.order_no,
       recipient_count: list.length, recipient_emails: list.map(r => r.email).join(', '),
-      attached_pdf: false, status: 'failed', error_detail: e?.message || 'send failed',
+      attached_pdf: Boolean(attachment), status: 'failed', error_detail: e?.message || 'send failed',
       triggered_by: triggeredBy
     });
     await admin.from('qc_orders').update({ mail_last_action: 'FAILED' }).eq('id', order.id);
@@ -613,13 +631,14 @@ async function processOrder(
     recipient_emails: redirected
       ? `[ทดสอบ] ${MAIL_ONLY_TO.join(', ')} · ผู้รับจริง ${list.length} คน`
       : list.map(r => r.email).join(', '),
-    attached_pdf: false, status: 'success', triggered_by: triggeredBy
+    attached_pdf: Boolean(attachment), status: 'success', triggered_by: triggeredBy
   });
 
   return {
     order_no: order.order_no, action, status,
     defect_pct: Number(ratePct.toFixed(2)), defect_check: check.status,
     recipients: list.length, skipped: skipped.length,
+    attached_pdf: Boolean(attachment),
     redirected_to: redirected ? MAIL_ONLY_TO : null
   };
 }
@@ -698,7 +717,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { data: order } = await admin.from('qc_orders').select('*').eq('id', orderId).single();
   if (!order) return res.status(404).json({ error: 'ไม่พบ Order' });
 
-  const result = await processOrder(admin, people, order, transporter, triggeredBy, dryRun);
+  // A browser-generated PDF arrives as 'data:application/pdf;base64,...'.
+  const rawPdf: string | undefined = req.body?.pdf_base64;
+  const attachment: PdfAttachment | null = rawPdf
+    ? {
+        filename: String(req.body?.pdf_filename || `${order.order_no}.pdf`),
+        base64: rawPdf.includes(',') ? rawPdf.split(',', 2)[1] : rawPdf
+      }
+    : null;
+
+  const result = await processOrder(admin, people, order, transporter, triggeredBy, dryRun, attachment);
   return res.status(200).json({
     ok: result.action !== 'failed', mail_enabled: MAIL_ENABLED, ...result
   });

@@ -100,11 +100,13 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
   const [err, setErr] = useState('');
   const [savedInfo, setSavedInfo] = useState<{ orderNo: string; ncrNo: string | null } | null>(null);
 
-  // Email/PDF state — populated after a Reject save to trigger offscreen NCR PDF render + notify
+  // Email state — populated after every save. ncrRow is only non-null for a
+  // Reject, and that is what decides whether an NCR PDF gets rendered first.
   const [notifyData, setNotifyData] = useState<{
     orderRow: any; detailRows: any[]; ncrRow: any; createdByName: string | null;
   } | null>(null);
-  const [notifyStatus, setNotifyStatus] = useState<'idle' | 'preparing' | 'sending' | 'sent' | 'failed'>('idle');
+  const [notifyStatus, setNotifyStatus] =
+    useState<'idle' | 'preparing' | 'sending' | 'sent' | 'skipped' | 'failed'>('idle');
   const ncrPdfRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -309,9 +311,12 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
       }
     }
 
-    // Reject → prepare NCR PDF + email notification (handled by useEffect after savedInfo)
-    if (draft.status === 'Reject') {
-      setNotifyStatus('preparing');
+    // Every status notifies — the rules the QC team gave cover all of them
+    // ("ทุกครั้งที่มีการบันทึกข้อมูล ทุกสถานะ ทุก % ของเสีย"), and notify-qc
+    // decides who hears about it. Only a Reject also carries the NCR PDF, so
+    // only a Reject needs the offscreen render step.
+    {
+      setNotifyStatus(draft.status === 'Reject' ? 'preparing' : 'sending');
       // Load full order/detail/NCR rows for the offscreen NcrReport render
       const [orderFull, detailsFull, ncrFull, creatorRow] = await Promise.all([
         supabase.from('qc_orders').select('*').eq('id', order.id).single(),
@@ -334,35 +339,53 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
     onSaved(order.order_no, ncrNo);
   };
 
-  // After notifyData is set + offscreen NcrReport is rendered, capture to PDF and POST notify
+  // Once notifyData is set — and, for a Reject, the offscreen NcrReport has been
+  // rendered — capture the PDF and POST to notify-qc.
   useEffect(() => {
-    if (!notifyData || !ncrPdfRef.current) return;
+    if (!notifyData) return;
+    // A Reject waits for the offscreen report; React commits it in the same
+    // render as savedInfo, so the ref is populated by the time effects run.
+    const needsPdf = Boolean(notifyData.ncrRow);
+    if (needsPdf && !ncrPdfRef.current) return;
+
     let cancelled = false;
     (async () => {
       try {
-        const filename = `${notifyData.ncrRow?.ncr_no || notifyData.orderRow.order_no}.pdf`;
-        const pdfBase64 = await generatePdfDataUri(ncrPdfRef.current!, filename);
+        let pdfBase64: string | null = null;
+        let filename: string | null = null;
+        if (needsPdf) {
+          filename = `${notifyData.ncrRow.ncr_no || notifyData.orderRow.order_no}.pdf`;
+          pdfBase64 = await generatePdfDataUri(ncrPdfRef.current!, filename);
+          if (cancelled) return;
+        }
 
-        if (cancelled) return;
         setNotifyStatus('sending');
 
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token;
         if (!token) { setNotifyStatus('failed'); return; }
 
-        const r = await fetch('/api/notify-reject', {
+        const r = await fetch('/api/notify-qc', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify({
             order_id: notifyData.orderRow.id,
-            pdf_base64: pdfBase64,
-            pdf_filename: filename
+            ...(pdfBase64 ? { pdf_base64: pdfBase64, pdf_filename: filename } : {})
           })
         });
         if (cancelled) return;
-        setNotifyStatus(r.ok ? 'sent' : 'failed');
+
+        // The endpoint answers ok:true for a deliberate skip too — no recipients
+        // switched on, mail turned off, nothing materially changed — so read the
+        // action instead of trusting the status code, or the UI claims a send
+        // that never happened.
+        const body = await r.json().catch(() => null);
+        const action = String(body?.action || '');
+        if (!r.ok || action === 'failed') setNotifyStatus('failed');
+        else if (action === 'skipped' || action === 'DRY_RUN') setNotifyStatus('skipped');
+        else setNotifyStatus('sent');
       } catch (e) {
-        console.warn('NCR PDF / notify failed:', e);
+        console.warn('notify failed:', e);
         if (!cancelled) setNotifyStatus('failed');
       }
     })();
@@ -377,7 +400,7 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
           orderNo={savedInfo.orderNo}
           ncrNo={savedInfo.ncrNo}
           status={draft.status}
-          notifyStatus={draft.status === 'Reject' ? notifyStatus : 'idle'}
+          notifyStatus={notifyStatus}
           onClose={onClose}
         />
         {/* Offscreen NCR PDF render (only when notify data is ready) */}
@@ -666,7 +689,7 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
 
 function SuccessView({ orderNo, ncrNo, status, notifyStatus, onClose }: {
   orderNo: string; ncrNo: string | null; status: string;
-  notifyStatus: 'idle' | 'preparing' | 'sending' | 'sent' | 'failed';
+  notifyStatus: 'idle' | 'preparing' | 'sending' | 'sent' | 'skipped' | 'failed';
   onClose: () => void;
 }) {
   return (
@@ -704,12 +727,19 @@ function SuccessView({ orderNo, ncrNo, status, notifyStatus, onClose }: {
             </div>
           )}
 
-          {status === 'Reject' && notifyStatus !== 'idle' && (
-            <div className="rounded-md px-3 py-2 text-sm flex items-center gap-2 border border-outline-variant/20 bg-surface-low">
+          {notifyStatus !== 'idle' && (
+            <div className="rounded-md px-3 py-2 text-sm flex items-start gap-2 border border-outline-variant/20 bg-surface-low">
               {notifyStatus === 'preparing' && <><span className="animate-spin">⏳</span> <span>กำลังเตรียม PDF NCR…</span></>}
               {notifyStatus === 'sending'   && <><span className="animate-spin">📧</span> <span>กำลังส่งอีเมลแจ้งเตือน…</span></>}
-              {notifyStatus === 'sent'      && <><span>✅</span> <span className="text-primary">ส่งอีเมลแจ้งเตือน + NCR PDF สำเร็จ</span></>}
-              {notifyStatus === 'failed'    && <><span>⚠️</span> <span className="text-error">ส่งอีเมลไม่สำเร็จ (Order บันทึกแล้ว — ลองส่งใหม่ผ่าน Admin Panel)</span></>}
+              {notifyStatus === 'sent'      && <><span>✅</span> <span className="text-primary">
+                ส่งอีเมลแจ้งเตือนสำเร็จ{status === 'Reject' ? ' + NCR PDF' : ''}
+              </span></>}
+              {notifyStatus === 'skipped'   && <><span>ℹ️</span> <span className="text-on-surface-variant">
+                ไม่ได้ส่งอีเมล — ยังปิดการส่งอยู่ หรือไม่มีผู้รับที่เปิดใช้งาน (Order บันทึกแล้ว ส่งภายหลังได้จากหน้าประวัติ)
+              </span></>}
+              {notifyStatus === 'failed'    && <><span>⚠️</span> <span className="text-error">
+                ส่งอีเมลไม่สำเร็จ (Order บันทึกแล้ว — ลองส่งใหม่จากหน้าประวัติ)
+              </span></>}
             </div>
           )}
         </div>
