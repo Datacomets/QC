@@ -469,6 +469,11 @@ async function processOrder(
   transporter: nodemailer.Transporter | null,
   triggeredBy: string | null, dryRun: boolean
 ) {
+  // Imported history is flagged so switching mail on cannot notify thousands of
+  // orders closed months ago (patch-32). Checked before anything else.
+  if (order.mail_suppressed)
+    return { order_no: order.order_no, action: 'skipped', reason: 'mail_suppressed (ข้อมูลเก่าที่ import มา)' };
+
   const status = String(order.status || '').trim();
   if (!FINAL_STATUSES.includes(status))
     return { order_no: order.order_no, action: 'skipped', reason: `status_not_final:${status}` };
@@ -671,7 +676,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (sweep) {
     const since = new Date(Date.now() - SWEEP_DAYS * 86400000).toISOString().slice(0, 10);
     const { data: orders } = await admin.from('qc_orders').select('*')
-      .gte('order_date', since).in('status', FINAL_STATUSES)
+      .gte('order_date', since).in('status', FINAL_STATUSES).eq('mail_suppressed', false)
       .order('created_at', { ascending: false }).limit(200);
 
     const results = [];
