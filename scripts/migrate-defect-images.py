@@ -217,9 +217,9 @@ update public.qc_order_details d set images = v.imgs
 commit;
 
 -- Verify — how many imported lines ended up with photos.
-select count(*) filter (where cardinality(coalesce(images, '{}')) > 0) as มีรูป,
-       count(*)                                                       as รายการที่ import,
-       sum(cardinality(coalesce(images, '{}')))                        as รูปทั้งหมด
+select count(*) filter (where cardinality(coalesce(images, '{}')) > 0) as "มีรูป",
+       count(*)                                                       as "รายการที่ import",
+       sum(cardinality(coalesce(images, '{}')))                        as "รูปทั้งหมด"
   from public.qc_order_details
  where legacy_detail_id is not null;
 """)
