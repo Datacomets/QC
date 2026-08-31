@@ -96,6 +96,41 @@ export default function History() {
   const nav = useNavigate();
   const isAdminRole = profile?.role === 'admin' || profile?.role === 'qc_admin';
 
+  // QC result notification. The endpoint decides whether anything actually
+  // leaves — while QC_MAIL_ENABLED is unset it runs the full routing and
+  // reports who *would* be mailed, so this button is safe to press today.
+  const [mailing, setMailing] = useState<number | null>(null);
+  const [mailMsg, setMailMsg] = useState<{ id: number; text: string; ok: boolean } | null>(null);
+
+  const sendQcMail = async (o: Order) => {
+    setMailing(o.id); setMailMsg(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const r = await fetch('/api/notify-qc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ order_id: o.id })
+      });
+      const j = await r.json();
+      if (!r.ok) { setMailMsg({ id: o.id, text: j.error || 'ส่งไม่สำเร็จ', ok: false }); return; }
+      if (j.action === 'DRY_RUN') {
+        const n = (j.recipients || []).length;
+        setMailMsg({
+          id: o.id, ok: true,
+          text: j.mail_enabled
+            ? `ทดลองแล้ว — จะส่งถึง ${n} คน`
+            : `🔒 การส่งเมลปิดอยู่ — ถ้าเปิดจะส่งถึง ${n} คน`
+        });
+      } else if (j.action === 'skipped') {
+        setMailMsg({ id: o.id, ok: true, text: `ไม่ได้ส่ง — ${j.reason}` });
+      } else {
+        setMailMsg({ id: o.id, ok: true, text: `✅ ส่งแล้ว ${j.recipients} คน (${j.action})` });
+      }
+    } catch (e: any) {
+      setMailMsg({ id: o.id, text: e?.message || 'error', ok: false });
+    } finally { setMailing(null); }
+  };
+
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -608,6 +643,7 @@ export default function History() {
                   <span className={`chip text-[10px] ${
                     o.status === 'Reject' ? 'bg-error-container text-error' :
                     o.status === 'Accept Lot' ? 'bg-amber-100 text-amber-800' :
+                    o.status === 'ของเข้า ICT' ? 'bg-slate-200 text-slate-700' :
                     'bg-emerald-100 text-emerald-700'
                   }`}>{o.status}</span>
                   {o.approved ? (
@@ -820,7 +856,10 @@ export default function History() {
                     📋 NCR · {ncrs[o.id].ncr_no}
                   </button>
                 )}
-                {profile?.role === 'operator' && !o.edit_approved && !o.approved && (
+                {/* 'ของเข้า ICT' is an arrival record, not a verdict — there is
+                    nothing to confirm, and it has no per-status approval column. */}
+                {profile?.role === 'operator' && !o.edit_approved && !o.approved
+                  && o.status !== 'ของเข้า ICT' && (
                   <button type="button" onClick={() => openApproveModal(o)} className="btn-primary text-sm">
                     {o.status === 'Accept'     ? '✓ ยืนยันรับ / Confirm Accept' :
                      o.status === 'Accept Lot' ? '✓ ยืนยันรับ Lot / Confirm Accept Lot' :
@@ -828,10 +867,21 @@ export default function History() {
                                                  '✓ อนุมัติ / Approve'}
                   </button>
                 )}
+                {isAdminRole && (
+                  <button type="button" onClick={() => sendQcMail(o)} disabled={mailing === o.id}
+                          className="btn-secondary text-sm">
+                    {mailing === o.id ? 'กำลังตรวจ…' : '📧 แจ้งผลทางอีเมล'}
+                  </button>
+                )}
                 {(o.created_by === profile?.id || isAdminRole) && (
                   <button type="button" onClick={() => nav(`/edit/${o.id}`)} className="btn-primary text-sm">
                     แก้ไขข้อมูล / Edit
                   </button>
+                )}
+                {mailMsg?.id === o.id && (
+                  <span className={`text-xs self-center ${mailMsg.ok ? 'text-on-surface-variant' : 'text-error'}`}>
+                    {mailMsg.text}
+                  </span>
                 )}
               </div>
             </div>

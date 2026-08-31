@@ -31,7 +31,10 @@ export default function QCEntry() {
   const [lotNo, setLotNo] = useState('');
   const [receivedQty, setReceivedQty] = useState<number | ''>('');
   const [sampleSize, setSampleSize] = useState<number | ''>('');
-  const [orderStatus, setOrderStatus] = useState<'Accept' | 'Accept Lot' | 'Reject' | ''>('');
+  // 'ของเข้า ICT' records goods arriving at ICT. It is a final status like the
+  // others — it notifies and closes the order — but it is not a QC verdict, so
+  // it carries no approver and no NCR.
+  const [orderStatus, setOrderStatus] = useState<'Accept' | 'Accept Lot' | 'Reject' | 'ของเข้า ICT' | ''>('');
   const [note, setNote] = useState('');
   const [originalDocChoice, setOriginalDocChoice] = useState('');   // dropdown selection or '__custom__'
   const [originalDocCustom, setOriginalDocCustom] = useState('');
@@ -441,13 +444,15 @@ export default function QCEntry() {
         </div>
         <div>
           <label className="field-label">จำนวนตรวจสอบ / Sample Size *</label>
-          <input type="number" min="1" required className="field-input"
+          {/* ICT is a goods-arrival record, so 0 is a legitimate answer there —
+              nothing has been inspected yet. Every other status needs a sample. */}
+          <input type="number" min={orderStatus === 'ของเข้า ICT' ? 0 : 1} required className="field-input"
             value={sampleSize} onChange={e => setSampleSize(e.target.value === '' ? '' : +e.target.value)} />
         </div>
         <div className="md:col-span-3">
           <label className="field-label">สถานะ / Order Status *</label>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-            {(['Accept', 'Accept Lot', 'Reject'] as const).map(s => (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+            {(['Accept', 'Accept Lot', 'Reject', 'ของเข้า ICT'] as const).map(s => (
               <button type="button" key={s}
                 onClick={() => setOrderStatus(s)}
                 className={`rounded-md px-3 py-2.5 text-sm font-semibold transition border ${
@@ -460,12 +465,19 @@ export default function QCEntry() {
                 {s === 'Accept' && 'ผ่าน / Accept'}
                 {s === 'Accept Lot' && 'รับ Lot / Accept Lot'}
                 {s === 'Reject' && 'ไม่ผ่าน / Reject'}
+                {s === 'ของเข้า ICT' && 'ของเข้า ICT'}
               </button>
             ))}
           </div>
           {orderStatus === 'Reject' && (
             <p className="mt-2 text-xs text-error">
               ⚠ เมื่อบันทึก จะสร้าง NCR (Non-Conformance Report) อัตโนมัติ / NCR will be auto-created
+            </p>
+          )}
+          {orderStatus === 'ของเข้า ICT' && (
+            <p className="mt-2 text-xs text-on-surface-variant">
+              บันทึกว่าของมาถึง ICT แล้ว — ไม่ใช่ผลตัดสิน QC จึงไม่ต้องมีผู้อนุมัติและไม่สร้าง NCR
+              · กรอกจำนวนตรวจสอบเป็น 0 ได้ถ้ายังไม่ได้ตรวจ
             </p>
           )}
         </div>

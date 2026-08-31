@@ -39,7 +39,10 @@ interface Profile { id: string; full_name: string | null; email: string; }
 const STATUS_COLORS: Record<string, string> = {
   Accept: '#005db6',
   'Accept Lot': '#0288d1',
-  Reject: '#ba1a1a'
+  Reject: '#ba1a1a',
+  // Arrival record, not a verdict — a neutral grey keeps it out of the
+  // pass/fail read of the chart.
+  'ของเข้า ICT': '#78909c'
 };
 
 export default function Dashboard() {

@@ -89,7 +89,7 @@ export default function QCEdit() {
       setReceivedQty(order.received_qty ?? '');
       setSampleSize(order.sample_size);
       setNote(order.note || '');
-      setStatus(['Accept', 'Accept Lot', 'Reject'].includes(order.status) ? order.status : '');
+      setStatus(['Accept', 'Accept Lot', 'Reject', 'ของเข้า ICT'].includes(order.status) ? order.status : '');
       // PCM / PUR — derive choice + custom
       const p = order.pcm || '';
       setPcmChoice(p ? (PCM_LIST.includes(p) ? p : '__custom__') : '');
@@ -302,6 +302,7 @@ export default function QCEdit() {
             <option value="Accept">ผ่าน / Accept</option>
             <option value="Accept Lot">รับ Lot / Accept Lot</option>
             <option value="Reject">ไม่ผ่าน / Reject</option>
+            <option value="ของเข้า ICT">ของเข้า ICT</option>
           </select>
         </div>
         <div className="md:col-span-3">

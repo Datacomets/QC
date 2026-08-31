@@ -1635,6 +1635,8 @@ function MailRecipientsPane({ canEdit }: { canEdit: boolean }) {
   const [msg, setMsg] = useState('');
   const [q, setQ] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
+  const [trying, setTrying] = useState(false);
+  const [tryResult, setTryResult] = useState<any>(null);
 
   const load = async () => {
     setLoading(true);
@@ -1721,6 +1723,40 @@ function MailRecipientsPane({ canEdit }: { canEdit: boolean }) {
     await load();
   };
 
+  /**
+   * Dry run against the newest real order.
+   *
+   * Calls the same endpoint the live sender uses, with dry_run set, so the
+   * routing being checked is the routing that will run — not a second
+   * implementation that can drift. Nothing is sent, and the API refuses to
+   * send at all while the QC_MAIL_ENABLED switch is off.
+   */
+  const tryRouting = async () => {
+    setTrying(true); setTryResult(null); setMsg('');
+    try {
+      const { data: order } = await supabase.from('qc_orders')
+        .select('id,order_no,status,defect_percent')
+        .in('status', ['Accept', 'Accept Lot', 'Reject', 'ของเข้า ICT'])
+        .order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (!order) { setMsg('❌ ยังไม่มีใบ QC ที่มีสถานะสมบูรณ์ให้ทดลอง'); setTrying(false); return; }
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const r = await fetch('/api/notify-qc', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({ order_id: order.id, dry_run: true })
+      });
+      const j = await r.json();
+      if (!r.ok) { setMsg('❌ ' + (j.error || 'ทดลองไม่สำเร็จ')); setTrying(false); return; }
+      setTryResult({ ...j, _order: order });
+    } catch (e: any) {
+      setMsg('❌ ' + (e?.message || 'error'));
+    } finally { setTrying(false); }
+  };
+
   const shown = rows.filter(r => {
     if (roleFilter && r.role !== roleFilter) return false;
     const t = q.trim().toLowerCase();
@@ -1739,13 +1775,80 @@ function MailRecipientsPane({ canEdit }: { canEdit: boolean }) {
             {!canEdit && <span className="ml-1 italic">(ดูได้อย่างเดียว — แก้ไขต้องใช้ admin)</span>}
           </p>
         </div>
-        {canEdit && (
-          <button onClick={() => setEditing({ active: true, by_assignment: true, role: 'sales', aliases: [] })}
-                  className="btn-primary text-sm">+ เพิ่มผู้รับ</button>
-        )}
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={tryRouting} disabled={trying} className="btn-secondary text-sm">
+            {trying ? 'กำลังคำนวณ…' : '🔍 ทดลองดูว่าจะส่งถึงใคร'}
+          </button>
+          {canEdit && (
+            <button onClick={() => setEditing({ active: true, by_assignment: true, role: 'sales', aliases: [] })}
+                    className="btn-primary text-sm">+ เพิ่มผู้รับ</button>
+          )}
+        </div>
       </div>
 
       {msg && <div className="rounded-md px-3 py-2 text-sm bg-error-container text-error">{msg}</div>}
+
+      {tryResult && (
+        <div className="rounded-md border border-outline-variant/40 bg-surface-low p-3 space-y-2 text-sm">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <p className="font-semibold">
+                ทดลองกับใบ {tryResult._order?.order_no} · {tryResult.status} · {tryResult.defect_pct}%
+              </p>
+              <p className="text-xs text-on-surface-variant">
+                {tryResult.mail_enabled
+                  ? 'การส่งเมลเปิดอยู่ — นี่เป็นการทดลอง ไม่ได้ส่งจริง'
+                  : '🔒 การส่งเมลปิดอยู่ — ไม่มีเมลออกไปได้จนกว่าจะตั้ง QC_MAIL_ENABLED'}
+                {tryResult.defect_check && <> · ตรวจ Defect: <b>{tryResult.defect_check}</b></>}
+              </p>
+            </div>
+            <button onClick={() => setTryResult(null)} className="btn-tertiary text-xs">ปิด</button>
+          </div>
+
+          {tryResult.action === 'skipped' ? (
+            <p className="text-on-surface-variant">ใบนี้จะไม่ถูกส่ง — เหตุผล: <b>{tryResult.reason}</b></p>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <p className="text-xs font-semibold mb-1">
+                  จะส่งถึง {(tryResult.recipients || []).length} คน
+                  {tryResult.would_be === 'REPLY' && <span className="ml-1 text-on-surface-variant">(ตอบกลับใน thread เดิม)</span>}
+                </p>
+                <ul className="space-y-1">
+                  {(tryResult.recipients || []).map((r: any) => (
+                    <li key={r.email} className="text-xs">
+                      <span className="font-medium">{r.name}</span>
+                      <span className="font-mono text-on-surface-variant"> · {r.email}</span>
+                      <div className="text-[11px] text-on-surface-variant">{r.why}</div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              {(tryResult.skipped || []).length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold mb-1 text-error">
+                    ถูกข้ามเพราะปิดสวิตช์ {(tryResult.skipped || []).length} คน
+                  </p>
+                  <ul className="space-y-1">
+                    {(tryResult.skipped || []).map((r: any) => (
+                      <li key={r.email} className="text-xs text-error">
+                        <span className="font-medium">{r.name}</span>
+                        <span className="font-mono"> · {r.email}</span>
+                        <div className="text-[11px] opacity-80">{r.why}</div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+          {tryResult.subject && (
+            <p className="text-[11px] font-mono text-on-surface-variant break-all border-t border-outline-variant/20 pt-2">
+              หัวข้อ: {tryResult.subject}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Brand owners with no address — the failure this screen exists to prevent.
           Mail to these people is dropped silently, so it is surfaced up front. */}

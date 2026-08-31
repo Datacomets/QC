@@ -36,7 +36,7 @@ interface OrderDraft {
   lot_no: string | null;
   received_qty: number | null;
   sample_size: number;
-  status: 'Accept' | 'Accept Lot' | 'Reject';
+  status: 'Accept' | 'Accept Lot' | 'Reject' | 'ของเข้า ICT';
   note: string | null;
   details: DraftDefect[];
   created_by: string;
@@ -241,15 +241,19 @@ export default function SuccessModal({ draft, onClose, onSaved }: Props) {
       created_by: draft.created_by
     };
 
-    if (approverName) {
+    // 'ของเข้า ICT' records an arrival, not a QC verdict, so there is nothing to
+    // approve and no per-status approval column for it. Without this guard the
+    // `: 'reject'` fallback below would stamp it as a Reject approval.
+    const APPROVAL_SUFFIX: Record<string, string> = {
+      'Accept': 'accept', 'Accept Lot': 'acceptlot', 'Reject': 'reject'
+    };
+    const sfx = APPROVAL_SUFFIX[draft.status];
+    if (approverName && sfx) {
       const now = new Date().toISOString();
       insertRow.approved = true;
       insertRow.approved_by = approverId;
       insertRow.approved_by_name = approverName;
       insertRow.approved_at = now;
-      const sfx = draft.status === 'Accept' ? 'accept'
-        : draft.status === 'Accept Lot' ? 'acceptlot'
-        : 'reject';
       insertRow[`${sfx}_approved`] = true;
       insertRow[`${sfx}_approved_by`] = approverId;
       insertRow[`${sfx}_approved_by_name`] = approverName;
