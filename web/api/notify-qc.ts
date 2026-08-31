@@ -53,6 +53,24 @@ const CRON_SECRET = process.env.CRON_SECRET || '';
  */
 const MAIL_ENABLED = process.env.QC_MAIL_ENABLED === 'true';
 
+/**
+ * SECOND SAFETY NET — while this is set, every mail goes to these addresses and
+ * nowhere else, whatever the routing worked out.
+ *
+ * Defaults ON, pointed at the admin mailbox, so that turning QC_MAIL_ENABLED on
+ * cannot by itself put mail in front of 34 people. Real routing still runs, and
+ * the message carries a banner naming everyone it *would* have gone to, so the
+ * rules can be checked against live orders from one inbox.
+ *
+ * To go fully live, set QC_MAIL_ONLY_TO=off — a deliberate second step, taken
+ * once the redirected mail looks right.
+ */
+const MAIL_ONLY_TO = (() => {
+  const raw = process.env.QC_MAIL_ONLY_TO ?? 'sls03@cometsintertrade.com';
+  if (raw.trim().toLowerCase() === 'off') return [];
+  return raw.split(',').map(s => s.trim()).filter(Boolean);
+})();
+
 /** Below this, only the standing "every order" recipients hear about it.
  *  Matches the 3% floor in the routing rules. */
 const NOTIFY_FLOOR_PCT = 3;
@@ -505,7 +523,8 @@ async function processOrder(
       reason: MAIL_ENABLED ? 'dry_run_requested' : 'ปิดการส่งเมลอยู่ (QC_MAIL_ENABLED ยังไม่ได้ตั้ง)',
       status, defect_pct: Number(ratePct.toFixed(2)),
       defect_check: check.status,
-      recipients: list, skipped, subject
+      recipients: list, skipped, subject,
+      redirected_to: MAIL_ONLY_TO.length ? MAIL_ONLY_TO : null
     };
   }
   if (!transporter) return { order_no: order.order_no, action: 'failed', reason: 'smtp_not_configured' };
@@ -514,12 +533,31 @@ async function processOrder(
   let action = isReply ? 'REPLY' : 'NEW';
   let messageId: string | null = order.mail_message_id || null;
 
+  // While redirect is on, the real recipient list is shown at the top of the
+  // message instead of being addressed — otherwise there is no way to check the
+  // routing from a single test inbox.
+  const redirected = MAIL_ONLY_TO.length > 0;
+  const to = redirected
+    ? MAIL_ONLY_TO.join(', ')
+    : list.map(r => `"${r.name}" <${r.email}>`).join(', ');
+  const body = redirected
+    ? `<div style="font-family:Tahoma,Arial,sans-serif;font-size:13px;background:#FFF4CC;border:2px solid #E0A400;border-radius:4px;padding:12px 14px;margin-bottom:18px;color:#7A5200">
+         <b>🔁 โหมดทดสอบ — เมลนี้ถูกส่งมาที่คุณคนเดียว ไม่ได้ส่งถึงผู้รับจริง</b>
+         <div style="margin-top:8px">ถ้าเปิดใช้งานจริง เมลฉบับนี้จะส่งถึง <b>${list.length} คน</b>:</div>
+         <ul style="margin:6px 0 0;padding-left:20px">
+           ${list.map(r => `<li>${esc(r.name)} &lt;${esc(r.email)}&gt; — ${esc(r.why)}</li>`).join('')}
+         </ul>
+         ${skipped.length ? `<div style="margin-top:8px">ถูกข้ามเพราะปิดสวิตช์ ${skipped.length} คน: ${skipped.map(s => esc(s.email)).join(', ')}</div>` : ''}
+         <div style="margin-top:8px;font-size:12px">ปิดโหมดนี้ด้วยการตั้ง <code>QC_MAIL_ONLY_TO=off</code></div>
+       </div>${html}`
+    : html;
+
   try {
     const info = await transporter.sendMail({
       from: `"${SMTP_FROM_NAME}" <${SMTP_USER}>`,
-      to: list.map(r => `"${r.name}" <${r.email}>`).join(', '),
-      subject,
-      html,
+      to,
+      subject: redirected ? `[ทดสอบ] ${subject}` : subject,
+      html: body,
       text: 'อีเมลนี้เป็น HTML กรุณาเปิดด้วยโปรแกรมที่รองรับ',
       ...(isReply && order.mail_message_id
         ? { inReplyTo: order.mail_message_id, references: [order.mail_message_id] }
@@ -539,27 +577,45 @@ async function processOrder(
     return { order_no: order.order_no, action: 'failed', reason: e?.message };
   }
 
-  // Snapshot is saved only after a successful send, so a failure retries next
-  // sweep instead of being silently marked as handled.
-  await admin.from('qc_orders').update({
-    mail_message_id: messageId,
-    mail_last_sent_at: new Date().toISOString(),
-    mail_send_count: (Number(order.mail_send_count) || 0) + 1,
-    mail_last_action: action,
-    mail_last_snapshot: snapshot,
-    mail_change_summary: summary
-  }).eq('id', order.id);
+  if (redirected) {
+    // A redirected mail reached one test inbox, not the real recipients, so it
+    // must not count as "this order has been notified". Saving the snapshot
+    // would make the first real send after going live look like a no-change and
+    // be skipped; storing the Message-ID would root the thread on a message
+    // nobody else ever saw.
+    action = 'TEST';
+    await admin.from('qc_orders').update({
+      mail_last_sent_at: new Date().toISOString(),
+      mail_last_action: 'TEST',
+      mail_change_summary: `ทดสอบ — ส่งไปที่ ${MAIL_ONLY_TO.join(', ')} เท่านั้น\nผู้รับจริงถ้าเปิดใช้งาน ${list.length} คน\n\n${summary}`
+    }).eq('id', order.id);
+  } else {
+    // Snapshot is saved only after a successful send, so a failure retries next
+    // sweep instead of being silently marked as handled.
+    await admin.from('qc_orders').update({
+      mail_message_id: messageId,
+      mail_last_sent_at: new Date().toISOString(),
+      mail_send_count: (Number(order.mail_send_count) || 0) + 1,
+      mail_last_action: action,
+      mail_last_snapshot: snapshot,
+      mail_change_summary: summary
+    }).eq('id', order.id);
+  }
 
   await admin.from('notification_send_log').insert({
     order_id: order.id, order_no: order.order_no,
-    recipient_count: list.length, recipient_emails: list.map(r => r.email).join(', '),
+    recipient_count: redirected ? MAIL_ONLY_TO.length : list.length,
+    recipient_emails: redirected
+      ? `[ทดสอบ] ${MAIL_ONLY_TO.join(', ')} · ผู้รับจริง ${list.length} คน`
+      : list.map(r => r.email).join(', '),
     attached_pdf: false, status: 'success', triggered_by: triggeredBy
   });
 
   return {
     order_no: order.order_no, action, status,
     defect_pct: Number(ratePct.toFixed(2)), defect_check: check.status,
-    recipients: list.length, skipped: skipped.length
+    recipients: list.length, skipped: skipped.length,
+    redirected_to: redirected ? MAIL_ONLY_TO : null
   };
 }
 

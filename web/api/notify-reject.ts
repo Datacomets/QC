@@ -13,6 +13,20 @@ const SMTP_USER = process.env.SMTP_USER!;
 const SMTP_PASS = process.env.SMTP_PASS!;
 const SMTP_FROM_NAME = process.env.SMTP_FROM_NAME || 'QC Inspection';
 
+/** Shared with notify-qc.ts — one variable governs every path that can send
+ *  mail. Nothing leaves either endpoint unless this is exactly "true".
+ *  See docs/mail-go-live.md. */
+const MAIL_ENABLED = process.env.QC_MAIL_ENABLED === 'true';
+
+/** Also shared with notify-qc.ts — while set, mail goes to these addresses and
+ *  nowhere else. Defaults on, so enabling QC_MAIL_ENABLED cannot by itself mail
+ *  the real recipient list. Set QC_MAIL_ONLY_TO=off to release. */
+const MAIL_ONLY_TO = (() => {
+  const raw = process.env.QC_MAIL_ONLY_TO ?? 'sls03@cometsintertrade.com';
+  if (raw.trim().toLowerCase() === 'off') return [];
+  return raw.split(',').map(s => s.trim()).filter(Boolean);
+})();
+
 const APP_URL = 'https://web-mocha-three-44.vercel.app';
 
 interface OrderRow {
@@ -276,6 +290,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ skipped: 'no_recipients' });
   }
 
+  /* MASTER SWITCH — the same one notify-qc.ts uses, so one variable governs
+   * every path that can put mail on the wire. Off unless QC_MAIL_ENABLED is
+   * exactly "true".
+   *
+   * This endpoint predates the switch and was sending for real, including from
+   * the "ส่งทดสอบ" button on the Admin screen. Preview above is untouched: it
+   * returns early and never reaches SMTP, so the email can still be inspected
+   * while sending is off. */
+  if (!MAIL_ENABLED) {
+    await logSend('skipped', 'mail_disabled:QC_MAIL_ENABLED_not_set');
+    // ok:false deliberately — nothing was sent, and the Admin screen keys its
+    // success message off ok, so a truthy value here would report a send that
+    // never happened.
+    return res.status(200).json({
+      ok: false,
+      skipped: `🔒 การส่งเมลปิดอยู่ — ถ้าเปิดจะส่งถึง ${toList.length} คน (ตั้ง QC_MAIL_ENABLED=true ใน Vercel)`,
+      mail_enabled: false,
+      would_send_to: toList,
+      recipient_count: toList.length,
+      subject: mail.subject
+    });
+  }
+
   // Send via SMTP
   if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
     await logSend('failed', 'SMTP not configured');
@@ -296,20 +333,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }]
     : undefined;
 
+  // Redirect: one test inbox gets the mail, with the real recipient list shown
+  // inside it so the routing is still verifiable.
+  const redirected = MAIL_ONLY_TO.length > 0;
+  const html = redirected
+    ? `<div style="font-family:Tahoma,Arial,sans-serif;font-size:13px;background:#FFF4CC;border:2px solid #E0A400;border-radius:4px;padding:12px 14px;margin-bottom:18px;color:#7A5200">
+         <b>🔁 โหมดทดสอบ — เมลนี้ถูกส่งมาที่คุณคนเดียว ไม่ได้ส่งถึงผู้รับจริง</b>
+         <div style="margin-top:8px">ถ้าเปิดใช้งานจริง จะส่งถึง <b>${toList.length} คน</b>: ${toList.join(', ')}</div>
+         <div style="margin-top:8px;font-size:12px">ปิดโหมดนี้ด้วยการตั้ง <code>QC_MAIL_ONLY_TO=off</code></div>
+       </div>${mail.html}`
+    : mail.html;
+
   try {
     const info = await transporter.sendMail({
       from: `"${SMTP_FROM_NAME}" <${SMTP_USER}>`,
-      to: toList.join(', '),
-      subject: mail.subject,
-      html: mail.html,
+      to: redirected ? MAIL_ONLY_TO.join(', ') : toList.join(', '),
+      subject: redirected ? `[ทดสอบ] ${mail.subject}` : mail.subject,
+      html,
       text: mail.text,
       attachments
     });
-    await logSend('success', undefined, !!attachments);
+    await logSend('success', redirected ? `[ทดสอบ] ส่งไปที่ ${MAIL_ONLY_TO.join(', ')} เท่านั้น` : undefined, !!attachments);
     return res.status(200).json({
       ok: true,
       message_id: info.messageId,
-      recipients: toList.length,
+      recipients: redirected ? MAIL_ONLY_TO.length : toList.length,
+      redirected_to: redirected ? MAIL_ONLY_TO : null,
+      would_send_to: redirected ? toList : null,
       attached_pdf: !!attachments
     });
   } catch (e: any) {
