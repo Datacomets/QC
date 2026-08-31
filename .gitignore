@@ -21,3 +21,9 @@ users-passwords*.xlsx
 *-passwords.*
 # Ignore Windows system files
 desktop.ini
+
+# Legacy defect photos pulled from Google Drive for the one-off migration
+# (~460 MB). Never belongs in the repo.
+Order Details_Imagess/
+Order*Details*Image*/
+scripts/.image-migration.json

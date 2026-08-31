@@ -78,12 +78,44 @@ create table public.import_orders (
 
 drop table if exists public.import_order_details;
 create table public.import_order_details (
-  order_no      text,
-  defect_code   text,
-  symptom       text,
-  critical_rank text,
-  quantity      text
+  legacy_detail_id text,
+  order_no         text,
+  defect_code      text,
+  symptom          text,
+  critical_rank    text,
+  quantity         text
 );
+
+-- ---------------------------------------------------------------------------
+-- 2b. Keep the workbook's own row id on the imported line.
+--
+-- The defect photos live in a Google Drive folder and are migrated separately,
+-- after this import. Matching a photo back to its line needs a stable key, and
+-- (order_no, symptom, quantity) is not one — the same defect at the same count
+-- legitimately repeats within an order. The workbook's OrderDetail Id is unique
+-- across all 3,762 rows, so it is carried across and used as the join key.
+--
+-- Safe to drop once the images are attached.
+-- ---------------------------------------------------------------------------
+alter table public.qc_order_details
+  add column if not exists legacy_detail_id text;
+
+create index if not exists qc_order_details_legacy_id_idx
+  on public.qc_order_details (legacy_detail_id) where legacy_detail_id is not null;
+
+comment on column public.qc_order_details.legacy_detail_id is
+  'OrderDetail Id จากชีท AppSheet เดิม — ใช้จับคู่รูป defect ตอนย้ายจาก Google Drive';
+
+-- Photo manifest: which Drive filenames belong to which line, in order.
+drop table if exists public.import_detail_images;
+create table public.import_detail_images (
+  legacy_detail_id text,
+  order_no         text,
+  seq              text,
+  filename         text
+);
+alter table public.import_detail_images enable row level security;
+revoke all on public.import_detail_images from anon, authenticated;
 
 -- Staging holds no secrets, but it is not app data either — keep it away from
 -- the API entirely rather than leaving two unprotected tables lying around.
@@ -125,8 +157,9 @@ commit;
 -- Verify — three empty staging tables and a 7-row map.
 -- ---------------------------------------------------------------------------
 select 'import_orders'        as ตาราง, count(*) as แถว from public.import_orders
-union all select 'import_order_details', count(*) from public.import_order_details
-union all select 'import_user_map',      count(*) from public.import_user_map;
+union all select 'import_order_details',  count(*) from public.import_order_details
+union all select 'import_detail_images',  count(*) from public.import_detail_images
+union all select 'import_user_map',       count(*) from public.import_user_map;
 
 -- Every source name must resolve to a real account, or those orders lose their
 -- author. Expect zero rows.
@@ -143,9 +176,13 @@ select m.source_name, m.emp_code
 -- Supabase Dashboard -> Table Editor, for each table: the "Insert" menu ->
 -- "Import data from CSV".
 --
---   public.import_orders         <-  supabase/import/orders.csv        (2,021)
---   public.import_order_details  <-  supabase/import/order_details.csv (3,762)
+--   public.import_orders         <-  supabase/import/orders.csv         (2,021)
+--   public.import_order_details  <-  supabase/import/order_details.csv  (3,762)
+--   public.import_detail_images  <-  supabase/import/detail_images.csv  (4,294)
 --
--- Both files are UTF-8 with a header row whose names match the columns above.
+-- All three are UTF-8 with a header row whose names match the columns above.
 -- Confirm the counts with the first query in patch-33 before applying it.
+--
+-- import_detail_images is only needed for the photo migration afterwards; the
+-- import itself works without it.
 -- ---------------------------------------------------------------------------

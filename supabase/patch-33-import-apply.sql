@@ -131,8 +131,10 @@ on conflict (order_no) do nothing;
 -- qc_order_details.images would render as broken images in the app. Left null,
 -- and the count is reported below so the gap is on the record.
 -- ---------------------------------------------------------------------------
-insert into public.qc_order_details (order_id, defect_code, symptom, critical_rank, quantity)
+insert into public.qc_order_details
+  (order_id, legacy_detail_id, defect_code, symptom, critical_rank, quantity)
 select o.id,
+       nullif(btrim(d.legacy_detail_id), ''),
        nullif(btrim(d.defect_code), ''),
        nullif(btrim(d.symptom), ''),
        coalesce(nullif(btrim(d.critical_rank), ''), 'Minor'),
