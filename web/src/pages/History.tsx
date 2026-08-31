@@ -189,16 +189,67 @@ export default function History() {
   const orderPdfRef = useRef<HTMLDivElement>(null);
   const summaryPdfRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { loadOrders(); }, []);
+  /**
+   * Search and status filter run in the database, not over a loaded page.
+   *
+   * With 2,037 orders a capped page cannot be filtered client-side: the cap
+   * decides what is searchable, so typing an August order number found nothing
+   * because August was not among the rows that happened to load.
+   *
+   * Ordering is by order_date too, not created_at — the 2,021 imported orders
+   * all share an insert timestamp, so created_at put them in no meaningful
+   * order at all.
+   */
+  const PAGE = 300;
+  const [total, setTotal] = useState<number | null>(null);
+  const [qLive, setQLive] = useState('');
+
+  // Debounced, so a query does not fire on every keystroke
+  useEffect(() => {
+    const t = setTimeout(() => setQ(qLive.trim()), 350);
+    return () => clearTimeout(t);
+  }, [qLive]);
+
+  useEffect(() => { loadOrders(); }, [q, statusFilter]);
 
   const loadOrders = async () => {
     setLoading(true);
-    const ordersP = supabase.from('qc_orders').select('*')
-      .order('created_at', { ascending: false }).limit(200);
+
+    let query = supabase.from('qc_orders').select('*', { count: 'exact' });
+
+    // These three are views of the approval workflow rather than of status
+    if (statusFilter === 'edit_pending')          query = query.eq('edit_approved', true);
+    else if (statusFilter === 'approved')         query = query.eq('approved', true);
+    else if (statusFilter === 'pending_approval') query = query.eq('approved', false);
+    else if (statusFilter)                        query = query.eq('status', statusFilter);
+
+    if (q) {
+      // ilike on the fields someone would actually search by. Commas and
+      // parentheses break PostgREST's or() syntax, so they are stripped.
+      const safe = q.replace(/[,()]/g, ' ').trim();
+      if (safe) {
+        const like = `%${safe}%`;
+        query = query.or([
+          `order_no.ilike.${like}`,
+          `sap_code.ilike.${like}`,
+          `lot_no.ilike.${like}`,
+          `project_brief_no.ilike.${like}`,
+          `material_description.ilike.${like}`,
+          `brand.ilike.${like}`,
+          `supplier_name.ilike.${like}`
+        ].join(','));
+      }
+    }
+
+    const ordersP = query
+      .order('order_date', { ascending: false })
+      .order('order_no', { ascending: false })
+      .limit(PAGE);
     const ncrsP = supabase.from('ncr_reports').select('*');
     const profilesP = supabase.from('profiles').select('id,full_name,role').order('full_name');
     const [ordersRes, ncrsRes, profilesRes] = await Promise.all([ordersP, ncrsP, profilesP]);
     setOrders((ordersRes.data as Order[]) || []);
+    setTotal(ordersRes.count ?? null);
 
     const map: Record<number, NcrRow> = {};
     for (const n of ((ncrsRes.data as NcrRow[]) || [])) {
@@ -462,29 +513,20 @@ export default function History() {
   };
 
   // ขอให้แก้ไข (พร้อมเหตุผล)
-  const filtered = orders.filter(o => {
-    // Status filter
-    if (statusFilter) {
-      if (statusFilter === 'edit_pending') { if (!o.edit_approved) return false; }
-      else if (statusFilter === 'approved') { if (!o.approved) return false; }
-      else if (statusFilter === 'pending_approval') { if (o.approved) return false; }
-      else if (o.status !== statusFilter) return false;   // inspection_result filter
-    }
-    if (!q) return true;
-    const s = q.toLowerCase();
-    return o.order_no.toLowerCase().includes(s) ||
-      (o.sap_code || '').toLowerCase().includes(s) ||
-      (o.material_description || '').toLowerCase().includes(s) ||
-      (o.brand || '').toLowerCase().includes(s) ||
-      (o.supplier_name || '').toLowerCase().includes(s);
-  });
+  // Filtering already happened in the query, so this is just what came back.
+  const filtered = orders;
 
   return (
     <div className="space-y-6">
       <div className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>
           <h1 className="font-display text-3xl font-bold tracking-tight">ประวัติการบันทึก / History</h1>
-          <p className="text-sm text-on-surface-variant mt-1">{orders.length} รายการ / records</p>
+          <p className="text-sm text-on-surface-variant mt-1">
+            {total === null ? `${orders.length} รายการ`
+              : total > orders.length
+                ? `พบ ${total.toLocaleString()} รายการ — แสดง ${orders.length} ใบล่าสุด (ค้นหาเพื่อดูใบอื่น)`
+                : `${total.toLocaleString()} รายการ / records`}
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <select className="field-select max-w-[180px]" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
@@ -500,8 +542,8 @@ export default function History() {
             </optgroup>
             <option value="edit_pending">✏️ รอแก้ไข / Pending Edit</option>
           </select>
-          <input className="field-input max-w-xs" placeholder="ค้นหา Order No, SAP, Brand…"
-            value={q} onChange={e => setQ(e.target.value)} />
+          <input className="field-input max-w-xs" placeholder="ค้นหา Order No, SAP, Lot, Brief, Brand, ผู้ผลิต…"
+            value={qLive} onChange={e => setQLive(e.target.value)} />
           <button onClick={downloadSummaryPdf} disabled={summaryDownloading || filtered.length === 0}
                   className="btn-secondary text-sm whitespace-nowrap"
                   title="ดาวน์โหลดรายงานรวม (PDF) / Download summary PDF">
