@@ -6,7 +6,7 @@ import { fmtDate } from '../lib/utils';
 import { generatePdfDataUri } from '../lib/pdf';
 import NcrReport from '../components/NcrReport';
 
-type Tab = 'suppliers' | 'defects' | 'brand_resp' | 'notify' | 'users';
+type Tab = 'suppliers' | 'defects' | 'brand_resp' | 'notify' | 'mail' | 'users';
 
 // Official standard list from SD-QC-1909-004-00 Rev02 (18-4-25)
 const OFFICIAL_TYPES = [
@@ -37,6 +37,7 @@ export default function Admin() {
   useEffect(() => {
     if (tab === 'brand_resp' && !isAdminSystem) setTab('suppliers');
     if (tab === 'notify' && !canSeeNotify) setTab('suppliers');
+    if (tab === 'mail' && !canSeeNotify) setTab('suppliers');
   }, [tab, isAdminSystem, canSeeNotify]);
 
   return (
@@ -50,12 +51,14 @@ export default function Admin() {
         <TabBtn id="defects" tab={tab} setTab={setTab}>รหัสของเสีย / Defect Codes</TabBtn>
         {isAdminSystem && <TabBtn id="brand_resp" tab={tab} setTab={setTab}>Brand → Sales/SCM</TabBtn>}
         {canSeeNotify && <TabBtn id="notify" tab={tab} setTab={setTab}>📧 Reject Notify</TabBtn>}
+        {canSeeNotify && <TabBtn id="mail" tab={tab} setTab={setTab}>📧 ผู้รับเมล QC</TabBtn>}
         <TabBtn id="users" tab={tab} setTab={setTab}>ผู้ใช้ / Users</TabBtn>
       </div>
       {tab === 'suppliers' && <SuppliersPane />}
       {tab === 'defects' && <DefectsPane />}
       {tab === 'brand_resp' && isAdminSystem && <BrandResponsibilitiesPane />}
       {tab === 'notify' && canSeeNotify && <NotifyRecipientsPane canEdit={isAdminSystem} />}
+      {tab === 'mail' && canSeeNotify && <MailRecipientsPane canEdit={isAdminSystem} />}
       {tab === 'users' && <UsersPane />}
     </div>
   );
@@ -1570,6 +1573,331 @@ const ROLE_LABELS: Record<string, string> = {
   operator: 'operator (QC Staff) — บันทึก QC',
   viewer:   'viewer — ดูอย่างเดียว'
 };
+
+/* ---------------------------------------------------------------------------
+ * Mail recipients — who receives the QC result email, and when
+ *
+ * Ported from the Mail_Config sheet the Apps Script flow used (patch-29).
+ * Nothing about routing lives in the API: each person carries their own switches,
+ * so changing who hears about a Reject is an admin edit, not a deploy.
+ * ------------------------------------------------------------------------- */
+interface MailRecipientRow {
+  id: number;
+  mail_id: string | null;
+  name: string;
+  nickname: string | null;   // generated column — never sent back on write
+  role: string;
+  email: string;
+  active: boolean;
+  by_assignment: boolean;
+  on_every: boolean;
+  on_accept: boolean;
+  on_accept_lot: boolean;
+  on_reject: boolean;
+  on_ict: boolean;
+  aliases: string[] | null;
+  note: string | null;
+}
+
+const MAIL_ROLES = [
+  'scm', 'scm_manager', 'pur', 'pcm', 'pcm_manager', 'sales', 'executive', 'system'
+];
+
+/** Same rule as public.nickname_of() in patch-29 — parenthesised form wins,
+ *  otherwise the last underscore-separated part. Mirrored here so the
+ *  unmatched-owner warning can be computed without a round trip. */
+const nicknameOf = (s?: string | null) => {
+  const v = (s || '').trim();
+  if (!v) return '';
+  const m = v.match(/\(([^)]*)\)/);
+  return (m ? m[1] : v.split('_').pop() || '').trim();
+};
+
+const norm = (s: string) => s.trim().replace(/\s+/g, ' ');
+
+/** Placeholders that sit in brand_responsibilities where a person should be. */
+const NOT_A_PERSON = ['Non Active', 'Team Present', 'Sales PK'];
+
+const TRIGGER_COLS: { key: keyof MailRecipientRow; head: string; title: string }[] = [
+  { key: 'by_assignment', head: 'ตามงาน',  title: 'ได้รับเฉพาะใบที่ตัวเองถูกระบุเป็น PCM / PUR / SCM / Sales' },
+  { key: 'on_every',      head: 'ทุกฉบับ', title: 'ได้รับทุกฉบับ ไม่ว่าสถานะใดหรือใครรับผิดชอบ' },
+  { key: 'on_accept',     head: 'Accept',  title: 'ได้รับเมื่อสถานะ Accept' },
+  { key: 'on_accept_lot', head: 'Acc.Lot', title: 'ได้รับเมื่อสถานะ Accept Lot' },
+  { key: 'on_reject',     head: 'Reject',  title: 'ได้รับเมื่อสถานะ Reject' },
+  { key: 'on_ict',        head: 'ICT',     title: 'ได้รับเมื่อสถานะ ของเข้า ICT' }
+];
+
+function MailRecipientsPane({ canEdit }: { canEdit: boolean }) {
+  const [rows, setRows] = useState<MailRecipientRow[]>([]);
+  const [owners, setOwners] = useState<{ person: string; field: string; brands: number }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<Partial<MailRecipientRow> | null>(null);
+  const [msg, setMsg] = useState('');
+  const [q, setQ] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+
+  const load = async () => {
+    setLoading(true);
+    const [rec, brands] = await Promise.all([
+      supabase.from('mail_recipients').select('*').order('role').order('name'),
+      supabase.from('brand_responsibilities').select('scm,sales')
+    ]);
+    const list = (rec.data as MailRecipientRow[]) || [];
+    setRows(list);
+
+    // Which brand owners have nobody to mail? Counted here rather than in SQL so
+    // the warning updates the moment an admin adds the missing person.
+    const known = new Set<string>();
+    list.forEach(r => {
+      if (r.nickname) known.add(norm(r.nickname));
+      (r.aliases || []).forEach(a => known.add(norm(a)));
+    });
+    const tally = new Map<string, { field: string; brands: number }>();
+    ((brands.data as any[]) || []).forEach(b => {
+      (['scm', 'sales'] as const).forEach(f => {
+        const v = (b[f] || '').trim();
+        if (!v || NOT_A_PERSON.includes(v)) return;
+        if (known.has(norm(nicknameOf(v))) || known.has(norm(v))) return;
+        const cur = tally.get(v) || { field: f, brands: 0 };
+        cur.brands++; tally.set(v, cur);
+      });
+    });
+    setOwners([...tally.entries()]
+      .map(([person, v]) => ({ person, ...v }))
+      .sort((a, b) => b.brands - a.brands));
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  /** Flip one switch straight from the grid — a config table is read and
+   *  corrected in place, so making every toggle a modal round trip would be
+   *  the wrong shape. Optimistic, reverted on error. */
+  const flip = async (r: MailRecipientRow, key: keyof MailRecipientRow) => {
+    if (!canEdit) return;
+    const next = !r[key];
+    setRows(rs => rs.map(x => (x.id === r.id ? { ...x, [key]: next } : x)));
+    const { error } = await supabase.from('mail_recipients')
+      .update({ [key]: next }).eq('id', r.id);
+    if (error) {
+      setMsg('❌ บันทึกไม่สำเร็จ: ' + error.message);
+      setRows(rs => rs.map(x => (x.id === r.id ? { ...x, [key]: !next } : x)));
+    } else setMsg('');
+  };
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!editing) return;
+    setMsg('');
+    const email = (editing.email || '').trim().toLowerCase();
+    const name = (editing.name || '').trim();
+    if (!name) { setMsg('❌ กรอกชื่อด้วย'); return; }
+    if (!email.includes('@')) { setMsg('❌ อีเมลไม่ถูกต้อง'); return; }
+
+    // nickname is generated in Postgres — sending it back would be rejected
+    const payload: any = {
+      name, email,
+      role: editing.role || 'sales',
+      active: editing.active ?? true,
+      by_assignment: editing.by_assignment ?? true,
+      on_every: editing.on_every ?? false,
+      on_accept: editing.on_accept ?? false,
+      on_accept_lot: editing.on_accept_lot ?? false,
+      on_reject: editing.on_reject ?? false,
+      on_ict: editing.on_ict ?? false,
+      aliases: (editing.aliases || []).map(norm).filter(Boolean),
+      note: (editing.note || '').trim() || null
+    };
+    const { error } = editing.id
+      ? await supabase.from('mail_recipients').update(payload).eq('id', editing.id)
+      : await supabase.from('mail_recipients').insert({ ...payload, mail_id: editing.mail_id || null });
+    if (error) { setMsg('❌ บันทึกไม่สำเร็จ: ' + error.message); return; }
+    setEditing(null); await load();
+  };
+
+  const del = async (r: MailRecipientRow) => {
+    if (!confirm(`ลบ ${r.name} (${r.email})?`)) return;
+    const { error } = await supabase.from('mail_recipients').delete().eq('id', r.id);
+    if (error) { setMsg('❌ ลบไม่สำเร็จ: ' + error.message); return; }
+    await load();
+  };
+
+  const shown = rows.filter(r => {
+    if (roleFilter && r.role !== roleFilter) return false;
+    const t = q.trim().toLowerCase();
+    return !t || r.name.toLowerCase().includes(t) || r.email.toLowerCase().includes(t)
+      || (r.nickname || '').toLowerCase().includes(t);
+  });
+  const activeCount = rows.filter(r => r.active).length;
+
+  return (
+    <section className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="font-display font-bold text-lg">📧 ผู้รับอีเมลแจ้งผล QC</h2>
+          <p className="text-xs text-on-surface-variant mt-0.5">
+            เปิดใช้ {activeCount} จาก {rows.length} คน — ติ๊กช่องเพื่อกำหนดว่าใครได้รับเมลตอนไหน บันทึกทันทีที่กด
+            {!canEdit && <span className="ml-1 italic">(ดูได้อย่างเดียว — แก้ไขต้องใช้ admin)</span>}
+          </p>
+        </div>
+        {canEdit && (
+          <button onClick={() => setEditing({ active: true, by_assignment: true, role: 'sales', aliases: [] })}
+                  className="btn-primary text-sm">+ เพิ่มผู้รับ</button>
+        )}
+      </div>
+
+      {msg && <div className="rounded-md px-3 py-2 text-sm bg-error-container text-error">{msg}</div>}
+
+      {/* Brand owners with no address — the failure this screen exists to prevent.
+          Mail to these people is dropped silently, so it is surfaced up front. */}
+      {owners.length > 0 && (
+        <div className="rounded-md border border-outline-variant/40 bg-surface-low px-3 py-2.5 space-y-1.5">
+          <p className="text-sm font-semibold text-error">
+            ⚠️ มี {owners.length} ชื่อในตารางแบรนด์ที่ยังไม่มีอีเมล — คนกลุ่มนี้จะไม่ได้รับเมลแบบเงียบ ๆ
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {owners.map(o => (
+              <button key={o.person} disabled={!canEdit}
+                onClick={() => setEditing({
+                  active: true, by_assignment: true,
+                  role: o.field === 'scm' ? 'scm' : 'sales',
+                  name: o.person, aliases: [o.person],
+                  note: `เพิ่มจากตารางแบรนด์ — รับผิดชอบ ${o.brands} แบรนด์`
+                })}
+                className="text-xs rounded border border-outline-variant/50 px-2 py-1 hover:bg-surface-mid disabled:opacity-60"
+                title={canEdit ? 'กดเพื่อเพิ่มคนนี้' : 'ต้องใช้สิทธิ์ admin'}>
+                {o.person} <span className="text-on-surface-variant">· {o.brands} แบรนด์ · {o.field}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-2 flex-wrap items-center">
+        <input className="field-input max-w-[220px]" placeholder="ค้นหาชื่อ / อีเมล"
+               value={q} onChange={e => setQ(e.target.value)} />
+        <select className="field-select max-w-[180px]" value={roleFilter}
+                onChange={e => setRoleFilter(e.target.value)}>
+          <option value="">ทุก Role</option>
+          {MAIL_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+        </select>
+        <span className="text-xs text-on-surface-variant">{shown.length} แถว</span>
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-on-surface-variant">กำลังโหลด…</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[900px]">
+            <thead className="text-xs uppercase tracking-wide text-on-surface-variant">
+              <tr className="border-b border-outline-variant/20">
+                <th className="text-left py-2 px-2">ชื่อ</th>
+                <th className="text-left py-2 px-2">Role</th>
+                <th className="text-left py-2 px-2">อีเมล</th>
+                <th className="py-2 px-2">เปิดใช้</th>
+                {TRIGGER_COLS.map(c => (
+                  <th key={String(c.key)} className="py-2 px-2" title={c.title}>{c.head}</th>
+                ))}
+                <th className="py-2 px-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map(r => (
+                <tr key={r.id} className={`border-b border-outline-variant/10 ${r.active ? '' : 'opacity-55'}`}>
+                  <td className="py-2 px-2">
+                    <div className="font-medium">{r.name}</div>
+                    {r.nickname && <div className="text-[11px] text-on-surface-variant">ชื่อเล่น: {r.nickname}</div>}
+                  </td>
+                  <td className="py-2 px-2"><span className="chip text-[11px]">{r.role}</span></td>
+                  <td className="py-2 px-2 font-mono text-[11.5px] break-all">{r.email}</td>
+                  <td className="py-2 px-2 text-center">
+                    <input type="checkbox" checked={r.active} disabled={!canEdit}
+                           onChange={() => flip(r, 'active')} title="ปิดแล้วไม่ได้รับเมลใด ๆ เลย" />
+                  </td>
+                  {TRIGGER_COLS.map(c => (
+                    <td key={String(c.key)} className="py-2 px-2 text-center">
+                      <input type="checkbox" checked={Boolean(r[c.key])}
+                             disabled={!canEdit || !r.active}
+                             onChange={() => flip(r, c.key)} title={c.title} />
+                    </td>
+                  ))}
+                  <td className="py-2 px-2 text-right whitespace-nowrap">
+                    {canEdit && <>
+                      <button onClick={() => setEditing({ ...r })} className="text-primary text-xs mr-2">แก้ไข</button>
+                      <button onClick={() => del(r)} className="text-error text-xs">ลบ</button>
+                    </>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {editing && (
+        <div className="fixed inset-0 bg-inverse/40 grid place-items-center z-30 p-4" onClick={() => setEditing(null)}>
+          <form onSubmit={save} onClick={e => e.stopPropagation()}
+                className="bg-surface-lowest rounded-lg shadow-ambient p-5 w-full max-w-lg space-y-3 max-h-[90vh] overflow-y-auto">
+            <h3 className="font-display font-bold">
+              {editing.id ? `แก้ไข: ${editing.name}` : 'เพิ่มผู้รับใหม่'}
+            </h3>
+
+            <div>
+              <Field label="ชื่อ-นามสกุล-ชื่อเล่น *" value={editing.name}
+                     onChange={v => setEditing({ ...editing, name: v })}
+                     placeholder="อิทธิ_อยู่วารีรักษ์_ทอย" />
+              <p className="text-[11px] text-on-surface-variant mt-1">
+                ระบบจับคู่ด้วย<b>ชื่อเล่น</b> — เขียน <span className="font-mono">ชื่อ_นามสกุล_เล่น</span> หรือ
+                <span className="font-mono"> ชื่อ นามสกุล (เล่น)</span> ก็ได้
+                {nicknameOf(editing.name) && <> · จะได้ชื่อเล่นว่า <b>{nicknameOf(editing.name)}</b></>}
+              </p>
+            </div>
+
+            <Field label="อีเมล *" value={editing.email}
+                   onChange={v => setEditing({ ...editing, email: v })} placeholder="pcm05@cometsintertrade.com" />
+
+            <SelectField label="Role" value={editing.role || 'sales'} options={MAIL_ROLES}
+                         onChange={v => setEditing({ ...editing, role: v })} />
+
+            <div>
+              <Field label="ชื่อสะกดแบบอื่น (คั่นด้วย ,)"
+                     value={(editing.aliases || []).join(', ')}
+                     onChange={v => setEditing({ ...editing, aliases: v.split(',').map(s => s.trim()).filter(Boolean) })}
+                     placeholder="อัจฉราภรณ์ ไนน์ สถาปนศิริ" />
+              <p className="text-[11px] text-on-surface-variant mt-1">
+                ใช้เมื่อชื่อในตารางแบรนด์เขียนไม่เหมือนที่นี่ จนจับคู่ด้วยชื่อเล่นไม่ได้
+              </p>
+            </div>
+
+            <div className="rounded-md border border-outline-variant/40 p-3 space-y-2">
+              <p className="text-xs font-semibold">ได้รับเมลตอนไหน</p>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={editing.active ?? true}
+                       onChange={e => setEditing({ ...editing, active: e.target.checked })} />
+                <span>เปิดใช้งาน <span className="text-on-surface-variant">— ปิดแล้วไม่ได้รับอะไรเลย</span></span>
+              </label>
+              {TRIGGER_COLS.map(c => (
+                <label key={String(c.key)} className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={Boolean(editing[c.key])}
+                         onChange={e => setEditing({ ...editing, [c.key]: e.target.checked })} />
+                  <span>{c.head} <span className="text-on-surface-variant">— {c.title}</span></span>
+                </label>
+              ))}
+            </div>
+
+            <Field label="หมายเหตุ" value={editing.note}
+                   onChange={v => setEditing({ ...editing, note: v })} />
+
+            {msg && <p className="text-sm text-error">{msg}</p>}
+            <div className="flex gap-2 justify-end pt-1">
+              <button type="button" onClick={() => setEditing(null)} className="btn-tertiary">ยกเลิก</button>
+              <button type="submit" className="btn-primary">บันทึก</button>
+            </div>
+          </form>
+        </div>
+      )}
+    </section>
+  );
+}
 
 function UsersPane() {
   const { profile: me } = useAuth();
