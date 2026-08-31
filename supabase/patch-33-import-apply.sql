@@ -190,7 +190,12 @@ select o.id,
        nullif(btrim(d.legacy_detail_id), ''),
        df.defect_code,
        nullif(btrim(d.symptom), ''),
-       coalesce(nullif(btrim(d.critical_rank), ''), 'Minor'),
+       -- critical_rank is an enum, not text, so the staged value needs a cast.
+       -- Every value in the workbook is already one of the three labels
+       -- (Minor 3,457 · Major 187 · Critical 118), but anything unexpected is
+       -- filed as Minor rather than aborting the import on one bad cell.
+       (case when btrim(d.critical_rank) in ('Critical', 'Major', 'Minor')
+             then btrim(d.critical_rank) else 'Minor' end)::critical_rank,
        coalesce(nullif(btrim(d.quantity), '')::numeric::int, 0)
   from public.import_order_details d
   join public.qc_orders o  on o.order_no = btrim(d.order_no)
