@@ -93,6 +93,38 @@ const ICT = 'ของเข้า ICT';
  */
 type PdfAttachment = { filename: string; base64: string };
 
+/** One row of public.brand_standards (patch-37). */
+type BrandStandard = {
+  brand_key: string; brand_standard: string; ambiguous: boolean; candidates: string | null;
+};
+
+/** The bits of public.suppliers the mail names a manufacturer by. */
+type Supplier = {
+  sup_code: string | null; sup_sap_code: string | null; supplier_name: string | null;
+};
+
+/**
+ * Everything the mail needs looked up that does not live on the order row.
+ * Resolved once per request and handed down, so a sweep of 200 orders does not
+ * re-query the same reference data 200 times.
+ */
+type MailRefs = {
+  brands: Map<string, BrandStandard>;   // keyed on normalizeBrand()
+  suppliers: Supplier[];
+  defectNames: Map<string, string>;     // defect_code -> symptom, per order
+};
+
+/**
+ * Must stay identical to normalize() in scripts/gen-brand-standards.mjs.
+ *
+ * The workbook spells the same brand several ways and marks obsolete entries
+ * with a leading * or . — "*2P", ".LA GLACE", "beW" — so both sides of the
+ * lookup get flattened the same way before they are compared.
+ */
+function normalizeBrand(s: unknown): string {
+  return String(s || '').replace(/^[*".'\s]+/, '').trim().toUpperCase();
+}
+
 /**
  * Which of the order's own responsible people are mailed, per status.
  *
@@ -345,7 +377,74 @@ const row = (l: string, v: unknown) =>
   `<tr><td style="color:#666;padding:2px 12px 2px 0;white-space:nowrap">${esc(l)}</td>` +
   `<td style="padding:2px 0"><b>${esc(v)}</b></td></tr>`;
 
-function defectRowsHtml(lines: Detail[], sampleSize: number) {
+/**
+ * The manufacturer, named by code rather than by company name.
+ *
+ * QC asked for Sup Code / Sup SAP Code because the company name is what people
+ * disagree about — "บริษัท ยูโร-กราฟิคส์ (88) จำกัด" is written a dozen ways
+ * across the workbook and SAP, while the code is one value everyone can look up.
+ *
+ * qc_orders.sup_code is set on about half the orders (the import could not
+ * resolve the rest), so fall back to matching the recorded name against the
+ * suppliers table before giving up. If nothing matches, show the name that was
+ * recorded — a name is more use to the reader than a blank cell.
+ */
+function supplierLabel(order: any, refs: MailRefs): string {
+  const byCode = order.sup_code
+    ? refs.suppliers.find(s => s.sup_code === order.sup_code)
+    : null;
+  const name = String(order.supplier_name || '').trim().toUpperCase();
+  const hit = byCode
+    || (name ? refs.suppliers.find(s => String(s.supplier_name || '').trim().toUpperCase() === name) : null);
+
+  if (!hit) return String(order.supplier_name || '-');
+
+  const parts = [hit.sup_code, hit.sup_sap_code].filter(Boolean);
+  return parts.length ? parts.join(' / ') : String(hit.supplier_name || '-');
+}
+
+/**
+ * The brand, checked against Sales/Company Brand Standard before it goes out.
+ *
+ * Three outcomes, and the mail is explicit about which one it is:
+ *   corrected  the typed name maps to a different standard — show the standard,
+ *              with what QC actually typed in brackets so nobody thinks the
+ *              order says something it does not
+ *   ambiguous  the workbook gives several standards for this brand depending on
+ *              the owning company, which no field on the order records. ICT
+ *              alone has six. Leave the name as typed and say so — printing one
+ *              of six would put another customer's brand in front of staff.
+ *   unknown    not in the workbook at all. Leave it and flag it, so the gap gets
+ *              fixed in the source file rather than papered over here.
+ */
+function brandRow(order: any, refs: MailRefs): string {
+  const typed = String(order.brand || '').trim();
+  if (!typed) return row('แบรนด์', '-');
+
+  const hit = refs.brands.get(normalizeBrand(typed));
+  const note = (t: string, color: string) =>
+    ` <span style="font-weight:normal;color:${color};font-size:12px">${esc(t)}</span>`;
+
+  if (!hit) {
+    return `<tr><td style="color:#666;padding:2px 12px 2px 0;white-space:nowrap">แบรนด์</td>` +
+           `<td style="padding:2px 0"><b>${esc(typed)}</b>` +
+           note('(ไม่พบในไฟล์มาตรฐานแบรนด์)', '#B45309') + `</td></tr>`;
+  }
+  if (hit.ambiguous) {
+    return `<tr><td style="color:#666;padding:2px 12px 2px 0;white-space:nowrap">แบรนด์</td>` +
+           `<td style="padding:2px 0"><b>${esc(typed)}</b>` +
+           note(`(ชื่อนี้ตรงได้หลายมาตรฐาน: ${hit.candidates || ''} — ใช้ตามที่ QC บันทึก)`, '#B45309') +
+           `</td></tr>`;
+  }
+  if (normalizeBrand(hit.brand_standard) === normalizeBrand(typed)) {
+    return row('แบรนด์', hit.brand_standard);
+  }
+  return `<tr><td style="color:#666;padding:2px 12px 2px 0;white-space:nowrap">แบรนด์</td>` +
+         `<td style="padding:2px 0"><b>${esc(hit.brand_standard)}</b>` +
+         note(`(QC บันทึกว่า "${typed}")`, '#666') + `</td></tr>`;
+}
+
+function defectRowsHtml(lines: Detail[], sampleSize: number, defectNames: Map<string, string>) {
   if (!lines.length)
     return `<tr><td colspan="6" style="border:1px solid #ccc;padding:8px">- ไม่พบรายการ Defect</td></tr>`;
 
@@ -356,7 +455,16 @@ function defectRowsHtml(lines: Detail[], sampleSize: number) {
 
     const blocks = Array.from({ length: n }, (_, k) => {
       const code = codes[k] || codes[0] || '';
-      const sym = syms[k] || syms[0] || String(d.symptom || '');
+      // Pair the symptom to its CODE, not to its position.
+      //
+      // A line can carry several codes and several symptoms in one cell, and
+      // the two lists are not always written in the same order — QC26050015
+      // shows 12308 labelled "ถลอก" and 12304 labelled "สีไม่ตรง STD", which is
+      // the other way round in the defects table. Zipping by index reproduces
+      // that mix-up in the mail. The code is the reliable half, so the symptom
+      // is looked up from it and the typed text is only a fallback for codes
+      // that are not in the table.
+      const sym = defectNames.get(code) || syms[k] || syms[0] || String(d.symptom || '');
       const src = code.length >= 2 ? DEFECT_SOURCE[code.charAt(1)] || '-' : '-';
       const sep = k < n - 1
         ? 'margin-bottom:14px;padding-bottom:10px;border-bottom:1px dashed #ddd'
@@ -393,7 +501,8 @@ function defectRowsHtml(lines: Detail[], sampleSize: number) {
 
 function buildMail(order: any, lines: Detail[], status: string, ratePct: number,
                    theme: ReturnType<typeof themeFor>, action: string,
-                   check: { ok: boolean; status: string; message: string }) {
+                   check: { ok: boolean; status: string; message: string },
+                   refs: MailRefs) {
   const pct = `${ratePct.toFixed(2)}%`;
   const headline =
     `ขออนุญาต${action}การสุ่มตรวจ Project Brief: ${order.project_brief_no || '-'}` +
@@ -423,9 +532,9 @@ function buildMail(order: any, lines: Detail[], status: string, ratePct: number,
     <table style="border-collapse:collapse">
       ${row('Order Id', order.order_no)}${row('วันที่รับเข้า', fmtDate(order.order_date))}
       ${row('วันที่ตรวจสอบ', fmtDate(order.received_date))}${row('Project Brief No.', order.project_brief_no)}
-      ${row('Order Status', status)}${row('แบรนด์', order.brand)}${row('SAP CODE', order.sap_code)}
+      ${row('Order Status', status)}${brandRow(order, refs)}${row('SAP CODE', order.sap_code)}
       ${row('รายละเอียดสินค้า', order.material_description)}${row('Lot No.', order.lot_no)}
-      ${row('ผู้ผลิต', order.supplier_name)}
+      ${row('ผู้ผลิต', supplierLabel(order, refs))}
     </table>
 
     <h3>ผลการตรวจสอบ</h3>
@@ -448,7 +557,7 @@ function buildMail(order: any, lines: Detail[], status: string, ratePct: number,
         <th style="border:1px solid #ccc;padding:8px;width:90px">Critical</th>
         <th style="border:1px solid #ccc;padding:8px;width:240px">รูปภาพ</th>
       </tr>
-      ${defectRowsHtml(lines, Number(order.sample_size) || 0)}
+      ${defectRowsHtml(lines, Number(order.sample_size) || 0, refs.defectNames)}
     </table>
 
     <h3>ผู้รับผิดชอบ / การอนุมัติ</h3>
@@ -477,7 +586,9 @@ async function processOrder(
   admin: any, people: Recipient[], order: any,
   transporter: nodemailer.Transporter | null,
   triggeredBy: string | null, dryRun: boolean,
-  attachment: PdfAttachment | null = null
+  attachment: PdfAttachment | null = null,
+  refs: { brands: Map<string, BrandStandard>; suppliers: Supplier[] } =
+        { brands: new Map(), suppliers: [] }
 ) {
   // Imported history is flagged so switching mail on cannot notify thousands of
   // orders closed months ago (patch-32). Checked before anything else.
@@ -525,10 +636,23 @@ async function processOrder(
     return { order_no: order.order_no, action: 'skipped', reason: 'no_recipients', skipped };
   }
 
+  // Only the codes this order actually uses — the defects table has 4,536 rows
+  // and PostgREST would cap a full read at 1,000 anyway.
+  const codes = [...new Set(lines.flatMap(l => splitMulti(l.defect_code)))].filter(Boolean);
+  const defectNames = new Map<string, string>();
+  if (codes.length) {
+    const { data: defs } = await admin
+      .from('defects').select('defect_code,symptom').in('defect_code', codes);
+    for (const d of (defs as { defect_code: string; symptom: string | null }[]) || []) {
+      if (d.symptom) defectNames.set(d.defect_code, d.symptom);
+    }
+  }
+
   const theme = themeFor(status, ratePct);
   const isReply = Boolean(order.mail_message_id);
   const { subject, html } = buildMail(order, lines, status, ratePct, theme,
-    isReply ? 'อัปเดตผล' : 'แจ้งผล', check);
+    isReply ? 'อัปเดตผล' : 'แจ้งผล', check,
+    { brands: refs.brands, suppliers: refs.suppliers, defectNames });
 
   if (dryRun) {
     return {
@@ -685,6 +809,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (pplErr) return res.status(500).json({ error: 'โหลดรายชื่อผู้รับไม่ได้: ' + pplErr.message });
   const people = (peopleData as Recipient[]) || [];
 
+  // Reference data the mail checks every order against, read once per request.
+  // brand_standards is 455 rows and suppliers 166, so both fit in one response
+  // well under PostgREST's 1,000-row cap.
+  const [brandRes, supRes] = await Promise.all([
+    admin.from('brand_standards').select('brand_key,brand_standard,ambiguous,candidates'),
+    admin.from('suppliers').select('sup_code,sup_sap_code,supplier_name')
+  ]);
+  const brands = new Map<string, BrandStandard>();
+  for (const b of (brandRes.data as BrandStandard[]) || []) brands.set(b.brand_key, b);
+  const suppliers = (supRes.data as Supplier[]) || [];
+  // Missing brand_standards is not fatal: patch-37 may not have been run yet, and
+  // a mail with the brand as typed beats no mail at all.
+  if (brandRes.error) console.warn('brand_standards unavailable:', brandRes.error.message);
+  const refs = { brands, suppliers };
+
   const transporter = (SMTP_HOST && SMTP_USER && SMTP_PASS)
     ? nodemailer.createTransport({
         host: SMTP_HOST, port: SMTP_PORT, secure: SMTP_PORT === 465,
@@ -700,7 +839,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const results = [];
     for (const o of (orders as any[]) || []) {
-      try { results.push(await processOrder(admin, people, o, transporter, null, dryRun)); }
+      try { results.push(await processOrder(admin, people, o, transporter, null, dryRun, null, refs)); }
       catch (e: any) { results.push({ order_no: o.order_no, action: 'failed', reason: e?.message }); }
     }
     const tally = results.reduce((m: Record<string, number>, r: any) => {
@@ -726,7 +865,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     : null;
 
-  const result = await processOrder(admin, people, order, transporter, triggeredBy, dryRun, attachment);
+  const result = await processOrder(admin, people, order, transporter, triggeredBy, dryRun, attachment, refs);
   return res.status(200).json({
     ok: result.action !== 'failed', mail_enabled: MAIL_ENABLED, ...result
   });
