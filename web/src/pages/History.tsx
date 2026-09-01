@@ -123,8 +123,22 @@ export default function History() {
         });
       } else if (j.action === 'skipped') {
         setMailMsg({ id: o.id, ok: true, text: `ไม่ได้ส่ง — ${j.reason}` });
+      } else if (j.redirected_to?.length) {
+        // A redirected send reached the test inbox and nobody else. Saying
+        // "ส่งแล้ว 4 คน (TEST)" read as if four people had been mailed, which is
+        // the opposite of what the redirect guarantees — so name the one address
+        // that actually received it and keep the 4 clearly hypothetical.
+        setMailMsg({
+          id: o.id, ok: true,
+          text: `✅ ส่งทดสอบไปที่ ${j.redirected_to.join(', ')} เท่านั้น`
+              + ` — ผู้รับจริงถ้าเปิดใช้งานเต็มรูปแบบ ${j.recipients} คน`
+        });
       } else {
-        setMailMsg({ id: o.id, ok: true, text: `✅ ส่งแล้ว ${j.recipients} คน (${j.action})` });
+        setMailMsg({
+          id: o.id, ok: true,
+          text: `✅ ส่งถึงผู้รับจริง ${j.recipients} คน`
+              + (j.action === 'REPLY' ? ' (ตอบกลับในเธรดเดิม)' : '')
+        });
       }
     } catch (e: any) {
       setMailMsg({ id: o.id, text: e?.message || 'error', ok: false });
