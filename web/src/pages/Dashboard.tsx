@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, fetchAll } from '../lib/supabase';
 import { fmtDate } from '../lib/utils';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line, PieChart, Pie, Cell, Legend
@@ -67,13 +67,17 @@ export default function Dashboard() {
 
   const loadData = async () => {
     setLoading(true);
-    const [ordersRes, detailsRes, profilesRes] = await Promise.all([
-      supabase.from('qc_orders').select('*').order('order_date', { ascending: false }).limit(5000),
-      supabase.from('qc_order_details').select('defect_code,symptom,quantity,order_id').limit(20000),
+    // Every figure on this page is computed from these two lists, so a capped
+    // response does not just truncate a table — it silently makes the totals,
+    // rates and rankings wrong. Before paging, 2,037 orders and 3,780 defect
+    // lines each arrived as an arbitrary 1,000.
+    const [orders, details, profilesRes] = await Promise.all([
+      fetchAll<any>('qc_orders', '*', 'order_date'),
+      fetchAll<any>('qc_order_details', 'defect_code,symptom,quantity,order_id', 'id'),
       supabase.from('profiles').select('id,full_name,email')
     ]);
-    setOrders(ordersRes.data || []);
-    setDetails(detailsRes.data || []);
+    setOrders(orders);
+    setDetails(details);
     setProfiles(profilesRes.data || []);
     setLoading(false);
   };

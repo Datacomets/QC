@@ -1,5 +1,5 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, fetchAll } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { parseSapCode, fmtNum, PCM_LIST, PUR_LIST } from '../lib/utils';
 import SuccessModal, { OrderDraft } from '../components/SuccessModal';
@@ -66,8 +66,10 @@ export default function QCEntry() {
 
   // Lookups
   useEffect(() => {
-    supabase.from('defects').select('defect_code,symptom,reason').limit(5000)
-      .then(({ data }) => setDefects((data as Defect[]) || []));
+    // All 4,536 of them — .limit() cannot beat PostgREST's 1,000-row cap,
+    // which silently hid four fifths of the codes. See fetchAll().
+    fetchAll<Defect>('defects', 'defect_code,symptom,reason', 'defect_code')
+      .then(setDefects);
 
     supabase.from('brand_responsibilities').select('brand,sales,scm').then(({ data }) => {
       const m = new Map<string, { sales: string | null; scm: string | null }>();

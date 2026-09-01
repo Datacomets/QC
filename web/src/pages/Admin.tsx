@@ -1,6 +1,6 @@
 import { ChangeEvent, DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { supabase } from '../lib/supabase';
+import { supabase, fetchAll } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { fmtDate } from '../lib/utils';
 import { generatePdfDataUri } from '../lib/pdf';
@@ -559,8 +559,10 @@ function DefectsPane() {
 
   const load = async () => {
     setLoading(true);
-    const { data } = await supabase.from('defects').select('*').order('defect_code').limit(10000);
-    setRows((data as DefectRow[]) || []);
+    // 4,536 rows — .limit(10000) still came back capped at 1,000, so the
+    // admin table was only ever showing a fifth of the codes.
+    const data = await fetchAll<DefectRow>('defects', '*', 'defect_code');
+    setRows(data);
     setLoading(false);
   };
   useEffect(() => { load(); }, []);

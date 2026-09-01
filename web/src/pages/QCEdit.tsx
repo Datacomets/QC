@@ -1,6 +1,6 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { supabase, fetchAll } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { sapBreakdownLabel, PCM_LIST, PUR_LIST } from '../lib/utils';
 
@@ -112,8 +112,10 @@ export default function QCEdit() {
       })));
       setLoading(false);
     })();
-    supabase.from('defects').select('defect_code,symptom').limit(5000)
-      .then(({ data }) => setDefects(data || []));
+    // Paged: PostgREST caps a response at 1,000 rows regardless of .limit().
+    fetchAll<{ defect_code: string; symptom: string }>(
+      'defects', 'defect_code,symptom', 'defect_code'
+    ).then(setDefects);
   }, [orderId, nav]);
 
   const totals = useMemo(() => {
