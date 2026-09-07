@@ -663,11 +663,20 @@ async function processOrder(
   triggeredBy: string | null, dryRun: boolean,
   attachment: PdfAttachment | null = null,
   refs: { brands: Map<string, BrandStandard>; suppliers: Supplier[] } =
-        { brands: new Map(), suppliers: [] }
+        { brands: new Map(), suppliers: [] },
+  onDemand = false
 ) {
-  // Imported history is flagged so switching mail on cannot notify thousands of
-  // orders closed months ago (patch-32). Checked before anything else.
-  if (order.mail_suppressed)
+  // Imported history is flagged so turning mail on cannot notify thousands of
+  // orders closed months ago (patch-32).
+  //
+  // That danger is a SWEEP finding them all at once, and the sweep's own query
+  // already filters mail_suppressed out, so this guard exists for the sweep's
+  // benefit twice over. Blocking the button as well meant QC could not re-send
+  // the result of an imported order even deliberately, one at a time, which is
+  // a normal thing to want — someone asks what QC26080192 said and there is no
+  // way to mail it. A person clicking แจ้งผลทางอีเมล on one order is the
+  // opposite of an accidental mass send, so on-demand sends pass through.
+  if (order.mail_suppressed && !onDemand)
     return { order_no: order.order_no, action: 'skipped', reason: 'mail_suppressed (ข้อมูลเก่าที่ import มา)' };
 
   const status = String(order.status || '').trim();
@@ -956,7 +965,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     : null;
 
-  const result = await processOrder(admin, people, order, transporter, triggeredBy, dryRun, attachment, refs);
+  const result = await processOrder(admin, people, order, transporter, triggeredBy, dryRun, attachment, refs, true);
   return res.status(200).json({
     ok: result.action !== 'failed', mail_enabled: MAIL_ENABLED, ...result
   });
