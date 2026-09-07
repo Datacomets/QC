@@ -85,6 +85,31 @@ const FINAL_STATUSES = ['Accept', 'Accept Lot', 'Reject', 'ของเข้า
 const ICT = 'ของเข้า ICT';
 
 /**
+ * Defect photos ride along inside the message instead of being linked.
+ *
+ * A linked <img src="https://…supabase.co/…"> is fetched from Storage by every
+ * reader, every time they open the mail. At 34 recipients and ~150 KB a photo
+ * that is 34 downloads per photo per open, and the Free plan's 5 GB of monthly
+ * egress does not survive it — a busy day of Reject mails alone projects to
+ * about 15 GB a month.
+ *
+ * Embedded, the server reads each photo from Storage once while building the
+ * message and the bytes then travel over SMTP, which costs nothing against the
+ * database quota. Same picture in the reader's inbox, 34x less egress, and the
+ * photos still show with images-off or after the bucket is locked down.
+ *
+ * The ceiling exists because mail servers reject large messages — Gmail cuts
+ * off at 25 MB — and base64 inflates whatever is attached by about a third.
+ * Anything past the ceiling falls back to a link rather than being dropped.
+ */
+const MAX_EMBED_BYTES  = 8 * 1024 * 1024;   // ~10.7 MB once base64-encoded
+const MAX_EMBED_IMAGES = 40;
+const EMBED_TIMEOUT_MS = 8000;
+
+/** url -> the cid it was embedded under. A url that is absent stays a link. */
+type EmbeddedImages = Map<string, string>;
+
+/**
  * The NCR PDF the app renders in the browser when a Reject is saved.
  *
  * Generated client-side because that is where the NCR layout component lives;
@@ -444,7 +469,8 @@ function brandRow(order: any, refs: MailRefs): string {
          note(`(QC บันทึกว่า "${typed}")`, '#666') + `</td></tr>`;
 }
 
-function defectRowsHtml(lines: Detail[], sampleSize: number, defectNames: Map<string, string>) {
+function defectRowsHtml(lines: Detail[], sampleSize: number, defectNames: Map<string, string>,
+                        embedded: EmbeddedImages) {
   if (!lines.length)
     return `<tr><td colspan="6" style="border:1px solid #ccc;padding:8px">- ไม่พบรายการ Defect</td></tr>`;
 
@@ -477,12 +503,15 @@ function defectRowsHtml(lines: Detail[], sampleSize: number, defectNames: Map<st
       </div>`;
     }).join('');
 
-    // Images are public Storage URLs, so <img src> works without attaching
-    // anything — no inline CID juggling, and the mail stays small.
+    // An embedded photo is referenced by its cid; one that could not be
+    // embedded — past the size ceiling, or it would not download — keeps the
+    // public Storage URL so the reader still gets something.
     const imgs = (d.images || []).length
-      ? (d.images || []).map(u =>
-          `<img src="${esc(u)}" width="170" style="width:170px;height:auto;margin:2px;border:1px solid #ccc;display:inline-block;vertical-align:top">`
-        ).join('')
+      ? (d.images || []).map(u => {
+          const cid = embedded.get(u);
+          const src = cid ? `cid:${cid}` : u;
+          return `<img src="${esc(src)}" width="170" style="width:170px;height:auto;margin:2px;border:1px solid #ccc;display:inline-block;vertical-align:top">`;
+        }).join('')
       : '-';
 
     const q = Number(d.quantity) || 0;
@@ -499,10 +528,56 @@ function defectRowsHtml(lines: Detail[], sampleSize: number, defectNames: Map<st
   }).join('');
 }
 
+/**
+ * Read each defect photo from Storage once, ready to be attached.
+ *
+ * Failures are per-photo and never fatal: a photo that will not download simply
+ * stays a link in the message, which is what the mail did for everything before
+ * this. A photo that arrives is counted against both ceilings before the next
+ * one is fetched, so a pathological order cannot build a message no server will
+ * accept.
+ */
+async function fetchImages(urls: string[]): Promise<{
+  embedded: EmbeddedImages;
+  attachments: { filename: string; content: Buffer; cid: string; contentType: string }[];
+  skipped: number;
+  bytes: number;
+}> {
+  const embedded: EmbeddedImages = new Map();
+  const attachments: { filename: string; content: Buffer; cid: string; contentType: string }[] = [];
+  let bytes = 0, skipped = 0;
+
+  for (const url of urls) {
+    if (embedded.has(url)) continue;
+    if (attachments.length >= MAX_EMBED_IMAGES || bytes >= MAX_EMBED_BYTES) { skipped++; continue; }
+    try {
+      const ctl = AbortSignal.timeout ? AbortSignal.timeout(EMBED_TIMEOUT_MS) : undefined;
+      const r = await fetch(url, ctl ? { signal: ctl } : {});
+      if (!r.ok) { skipped++; continue; }
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (!buf.length || bytes + buf.length > MAX_EMBED_BYTES) { skipped++; continue; }
+
+      const name = decodeURIComponent(url.split('/').pop() || 'photo.jpg');
+      const cid = `img${attachments.length}@qc`;
+      attachments.push({
+        filename: name,
+        content: buf,
+        cid,
+        contentType: r.headers.get('content-type') || (name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg')
+      });
+      embedded.set(url, cid);
+      bytes += buf.length;
+    } catch {
+      skipped++;
+    }
+  }
+  return { embedded, attachments, skipped, bytes };
+}
+
 function buildMail(order: any, lines: Detail[], status: string, ratePct: number,
                    theme: ReturnType<typeof themeFor>, action: string,
                    check: { ok: boolean; status: string; message: string },
-                   refs: MailRefs) {
+                   refs: MailRefs, embedded: EmbeddedImages = new Map()) {
   const pct = `${ratePct.toFixed(2)}%`;
   const headline =
     `ขออนุญาต${action}การสุ่มตรวจ Project Brief: ${order.project_brief_no || '-'}` +
@@ -557,7 +632,7 @@ function buildMail(order: any, lines: Detail[], status: string, ratePct: number,
         <th style="border:1px solid #ccc;padding:8px;width:90px">Critical</th>
         <th style="border:1px solid #ccc;padding:8px;width:240px">รูปภาพ</th>
       </tr>
-      ${defectRowsHtml(lines, Number(order.sample_size) || 0, refs.defectNames)}
+      ${defectRowsHtml(lines, Number(order.sample_size) || 0, refs.defectNames, embedded)}
     </table>
 
     <h3>ผู้รับผิดชอบ / การอนุมัติ</h3>
@@ -650,9 +725,18 @@ async function processOrder(
 
   const theme = themeFor(status, ratePct);
   const isReply = Boolean(order.mail_message_id);
+
+  // A dry run reports what would be sent, so there is no reason to pull
+  // megabytes of photos out of Storage for it.
+  const photoUrls = lines.flatMap(l => l.images || []).filter(Boolean);
+  const photos = dryRun
+    ? { embedded: new Map<string, string>(), attachments: [], skipped: 0, bytes: 0 }
+    : await fetchImages(photoUrls);
+
   const { subject, html } = buildMail(order, lines, status, ratePct, theme,
     isReply ? 'อัปเดตผล' : 'แจ้งผล', check,
-    { brands: refs.brands, suppliers: refs.suppliers, defectNames });
+    { brands: refs.brands, suppliers: refs.suppliers, defectNames },
+    photos.embedded);
 
   if (dryRun) {
     return {
@@ -663,6 +747,7 @@ async function processOrder(
       status, defect_pct: Number(ratePct.toFixed(2)),
       defect_check: check.status,
       recipients: list, skipped, subject,
+      photos: photoUrls.length,
       attached_pdf: attachment ? attachment.filename : null,
       redirected_to: MAIL_ONLY_TO.length ? MAIL_ONLY_TO : null
     };
@@ -699,13 +784,16 @@ async function processOrder(
       subject: redirected ? `[ทดสอบ] ${subject}` : subject,
       html: body,
       text: 'อีเมลนี้เป็น HTML กรุณาเปิดด้วยโปรแกรมที่รองรับ',
-      ...(attachment
-        ? { attachments: [{
+      attachments: [
+        ...photos.attachments,
+        ...(attachment
+          ? [{
               filename: attachment.filename,
               content: Buffer.from(attachment.base64, 'base64'),
               contentType: 'application/pdf'
-            }] }
-        : {}),
+            }]
+          : [])
+      ],
       ...(isReply && order.mail_message_id
         ? { inReplyTo: order.mail_message_id, references: [order.mail_message_id] }
         : {})
@@ -763,6 +851,9 @@ async function processOrder(
     defect_pct: Number(ratePct.toFixed(2)), defect_check: check.status,
     recipients: list.length, skipped: skipped.length,
     attached_pdf: Boolean(attachment),
+    photos_embedded: photos.attachments.length,
+    photos_linked: photos.skipped,
+    photo_bytes: photos.bytes,
     redirected_to: redirected ? MAIL_ONLY_TO : null
   };
 }
