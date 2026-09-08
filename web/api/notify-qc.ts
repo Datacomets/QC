@@ -118,6 +118,9 @@ type EmbeddedImages = Map<string, string>;
  */
 type PdfAttachment = { filename: string; base64: string };
 
+/** One row of public.brand_responsibilities — who owns a brand. */
+type BrandOwner = { brand: string; sales: string | null; scm: string | null };
+
 /** One row of public.brand_standards (patch-37). */
 type BrandStandard = {
   brand_key: string; brand_standard: string; ambiguous: boolean; candidates: string | null;
@@ -312,8 +315,25 @@ function resolveRecipients(
   people: Recipient[],
   order: any,
   status: string,
-  ratePct: number
+  ratePct: number,
+  owners: Map<string, BrandOwner> = new Map()
 ): { list: Resolved[]; skipped: Resolved[] } {
+  // The rule is "SCM ตามแบรนด์ผู้รับผิดชอบ" — the brand's owner, not merely
+  // whatever the order recorded. The entry form fills those fields from this
+  // same table, so the two normally agree; where they cannot is the 297 orders
+  // whose scm is blank, 89 of which belong to a brand this table does know.
+  // Those were falling through to "รับแทน SCM" when a real owner exists.
+  //
+  // The order still wins when it names someone: it is the record of who
+  // actually handled that lot, and a brand can change hands.
+  const owner = owners.get(normalizeBrand(order.brand));
+  const assigned = (f: string): string | null => {
+    const own = String(order[f] ?? '').trim();
+    if (own) return own;
+    if (f === 'scm')   return owner?.scm   || null;
+    if (f === 'sales') return owner?.sales || null;
+    return null;
+  };
   const list: Resolved[] = [];
   const skipped: Resolved[] = [];
   const seen = new Set<string>();
@@ -332,7 +352,7 @@ function resolveRecipients(
     || ASSIGNED_BY_STATUS.__below__;
 
   for (const f of fields) {
-    const person = order[f] as string | null;
+    const person = assigned(f);
     const hit = findRecipient(people, person);
     if (hit && hit.by_assignment) {
       add(hit, `${f.toUpperCase()} ของใบนี้ — ${personName(person)}`);
@@ -731,8 +751,9 @@ async function processOrder(
   transporter: nodemailer.Transporter | null,
   triggeredBy: string | null, dryRun: boolean,
   attachment: PdfAttachment | null = null,
-  refs: { brands: Map<string, BrandStandard>; suppliers: Supplier[] } =
-        { brands: new Map(), suppliers: [] },
+  refs: { brands: Map<string, BrandStandard>; suppliers: Supplier[];
+          owners?: Map<string, BrandOwner> } =
+        { brands: new Map(), suppliers: [], owners: new Map() },
   onDemand = false
 ) {
   // Imported history is flagged so turning mail on cannot notify thousands of
@@ -780,7 +801,7 @@ async function processOrder(
   if (order.mail_last_snapshot && order.mail_last_snapshot === snapshot)
     return { order_no: order.order_no, action: 'skipped', reason: 'no_material_change' };
 
-  const { list, skipped } = resolveRecipients(people, order, status, ratePct);
+  const { list, skipped } = resolveRecipients(people, order, status, ratePct, refs.owners);
   if (!list.length) {
     await admin.from('qc_orders').update({
       mail_last_action: 'SKIPPED',
@@ -981,17 +1002,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Reference data the mail checks every order against, read once per request.
   // brand_standards is 455 rows and suppliers 166, so both fit in one response
   // well under PostgREST's 1,000-row cap.
-  const [brandRes, supRes] = await Promise.all([
+  const [brandRes, supRes, ownerRes] = await Promise.all([
     admin.from('brand_standards').select('brand_key,brand_standard,ambiguous,candidates'),
-    admin.from('suppliers').select('sup_code,sup_sap_code,supplier_name')
+    admin.from('suppliers').select('sup_code,sup_sap_code,supplier_name'),
+    admin.from('brand_responsibilities').select('brand,sales,scm')
   ]);
   const brands = new Map<string, BrandStandard>();
   for (const b of (brandRes.data as BrandStandard[]) || []) brands.set(b.brand_key, b);
   const suppliers = (supRes.data as Supplier[]) || [];
+
+  // Who owns each brand, keyed the way the brand itself is normalised, plus an
+  // entry under the standard name so an order saying "2P" finds the row filed
+  // under "2P ORIGINAL". An ambiguous brand is skipped for the same reason the
+  // mail leaves its name alone: ICT resolves six ways and picking one would
+  // hand the order to a stranger.
+  const owners = new Map<string, BrandOwner>();
+  for (const o of (ownerRes.data as BrandOwner[]) || []) {
+    const key = normalizeBrand(o.brand);
+    if (!key) continue;
+    if (!owners.has(key)) owners.set(key, o);
+    const std = brands.get(key);
+    if (std && !std.ambiguous) {
+      const alias = normalizeBrand(std.brand_standard);
+      if (alias && !owners.has(alias)) owners.set(alias, o);
+    }
+  }
+
   // Missing brand_standards is not fatal: patch-37 may not have been run yet, and
   // a mail with the brand as typed beats no mail at all.
   if (brandRes.error) console.warn('brand_standards unavailable:', brandRes.error.message);
-  const refs = { brands, suppliers };
+  if (ownerRes.error) console.warn('brand_responsibilities unavailable:', ownerRes.error.message);
+  const refs = { brands, suppliers, owners };
 
   const transporter = (SMTP_HOST && SMTP_USER && SMTP_PASS)
     ? nodemailer.createTransport({
