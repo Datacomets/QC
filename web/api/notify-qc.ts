@@ -312,13 +312,13 @@ function resolveRecipients(
     const person = order[f] as string | null;
     const hit = findRecipient(people, person);
     if (hit && hit.by_assignment) {
-      add(hit, `${f.toUpperCase()} ของใบนี้ — ${person}`);
+      add(hit, `${f.toUpperCase()} ของใบนี้ — ${personName(person)}`);
       continue;
     }
     // No owner (a 'Non Active' placeholder, an unknown name, or someone whose
     // by_assignment is off): fall back to whoever covers that role.
     const stand = people.filter(r => r.active && (r.fallback_for || []).includes(f));
-    stand.forEach(s => add(s, `รับแทน ${f.toUpperCase()} — ใบนี้ไม่มีผู้รับผิดชอบ (${person || 'ว่าง'})`));
+    stand.forEach(s => add(s, `รับแทน ${f.toUpperCase()} — ใบนี้ไม่มีผู้รับผิดชอบ (${personName(person) || 'ว่าง'})`));
   }
 
   for (const r of people) {
@@ -396,6 +396,52 @@ function themeFor(status: string, ratePct: number) {
   }
   if (status === 'Accept Lot') return { bg: '#FBF0D5', ac: '#E0A400', tx: '#7A5200', level: 'Accept Lot' };
   return { bg: '#E1F5EE', ac: '#1D9E75', tx: '#0F6E56', level: status || 'Accept' };
+}
+
+/**
+ * One display format for every person the mail names: ชื่อ_นามสกุล_ชื่อเล่น.
+ *
+ * The database holds two conventions side by side. Most rows already use this
+ * underscore form, which patch-25 standardised on — 1,726 of the SCM values
+ * alone — while 133 fields left over from the AppSheet import use parentheses,
+ * and those put the nickname in either position: "อัญชิสา เดชยงค์ (ไอซ์)" but
+ * also "สิริสุดา (กระต่าย) ชัญถาวร". Reading a mail where the same colleague
+ * appears three different ways is the complaint this fixes.
+ *
+ * Underscore rows are only tidied — the stray space in "ภัทราภรณ์_นามะวงค์_ เอิญ"
+ * goes. Parenthesised rows are rebuilt as first_last_nick, taking the nickname
+ * from inside the brackets wherever they sit and the remaining words, in the
+ * order written, as the name.
+ *
+ * Normalising at display time rather than rewriting the rows keeps whatever was
+ * actually recorded — including a misspelling like บุษบา_มาาเยอะ_บุษ, which is
+ * for a person to correct, not a formatter — and a name typed either way
+ * tomorrow still comes out consistent.
+ *
+ * Anything carrying neither marker is passed through untouched. A role
+ * placeholder ("Sales PK", "Non Active"), a bare nickname ("Mint") and a name
+ * recorded with no nickname ("ธนวัฒ พิบูลย์สวัสดิ์") all look alike to this
+ * function, and joining their words with underscores would turn "Non Active"
+ * into a person and claim a surname the row never recorded.
+ */
+function personName(v: unknown): string {
+  const raw = String(v ?? '').trim();
+  if (!raw) return '';
+
+  // Already the target form — just drop stray spaces around the separators.
+  if (raw.includes('_'))
+    return raw.split('_').map(x => x.trim()).filter(Boolean).join('_');
+
+  // Parenthesised form: nickname inside the brackets, name around them.
+  const m = raw.match(/^(.*?)\s*\(([^()]+)\)\s*(.*)$/);
+  if (m) {
+    const words = `${m[1].trim()} ${m[3].trim()}`.split(/\s+/).filter(Boolean);
+    const nick = m[2].trim();
+    if (words.length && nick) return [...words, nick].join('_');
+    return words.join('_') || raw;
+  }
+
+  return raw;
 }
 
 const row = (l: string, v: unknown) =>
@@ -637,8 +683,8 @@ function buildMail(order: any, lines: Detail[], status: string, ratePct: number,
 
     <h3>ผู้รับผิดชอบ / การอนุมัติ</h3>
     <table style="border-collapse:collapse">
-      ${row('PCM', order.pcm)}${row('PUR', order.pur)}${row('SCM', order.scm)}${row('Sales', order.sales)}
-      ${row('ผู้อนุมัติ', order.approved_by_name)}
+      ${row('PCM', personName(order.pcm))}${row('PUR', personName(order.pur))}${row('SCM', personName(order.scm))}${row('Sales', personName(order.sales))}
+      ${row('ผู้อนุมัติ', personName(order.approved_by_name))}
     </table>
 
     <p>รบกวนผู้เกี่ยวข้องประสานงานกับทีม QC เพื่อตรวจสอบข้อมูลและดำเนินการในขั้นตอนถัดไปค่ะ</p>
@@ -773,13 +819,13 @@ async function processOrder(
   const redirected = MAIL_ONLY_TO.length > 0;
   const to = redirected
     ? MAIL_ONLY_TO.join(', ')
-    : list.map(r => `"${r.name}" <${r.email}>`).join(', ');
+    : list.map(r => `"${personName(r.name)}" <${r.email}>`).join(', ');
   const body = redirected
     ? `<div style="font-family:Tahoma,Arial,sans-serif;font-size:13px;background:#FFF4CC;border:2px solid #E0A400;border-radius:4px;padding:12px 14px;margin-bottom:18px;color:#7A5200">
          <b>🔁 โหมดทดสอบ — เมลนี้ถูกส่งมาที่คุณคนเดียว ไม่ได้ส่งถึงผู้รับจริง</b>
          <div style="margin-top:8px">ถ้าเปิดใช้งานจริง เมลฉบับนี้จะส่งถึง <b>${list.length} คน</b>:</div>
          <ul style="margin:6px 0 0;padding-left:20px">
-           ${list.map(r => `<li>${esc(r.name)} &lt;${esc(r.email)}&gt; — ${esc(r.why)}</li>`).join('')}
+           ${list.map(r => `<li>${esc(personName(r.name))} &lt;${esc(r.email)}&gt; — ${esc(r.why)}</li>`).join('')}
          </ul>
          ${skipped.length ? `<div style="margin-top:8px">ถูกข้ามเพราะปิดสวิตช์ ${skipped.length} คน: ${skipped.map(s => esc(s.email)).join(', ')}</div>` : ''}
          <div style="margin-top:8px;font-size:12px">ปิดโหมดนี้ด้วยการตั้ง <code>QC_MAIL_ONLY_TO=off</code></div>
