@@ -275,12 +275,35 @@ function validateDefects(defectQty: number, lines: Detail[]) {
 function findRecipient(people: Recipient[], person?: string | null) {
   const raw = norm(person || '');
   if (!raw) return null;
+
   // An alias is a human's explicit statement about a spelling, so it outranks
-  // the nickname heuristic.
+  // everything below.
   const byAlias = people.find(r => (r.aliases || []).some(a => norm(a) === raw));
   if (byAlias) return byAlias;
+
+  // Then the whole name, which is what the order actually records. This step
+  // was missing, and the nickname fallback below was deciding on its own:
+  // QC26080192 records พลอยไพลิน_หอมเนียม_พลอย as Sales, and the mail went to
+  // เดือนเพ็ญ_ขวัญมงคลทอง_พลอย at pcm04@ instead — a different person who
+  // happens to share the nickname พลอย. 370 orders name พลอยไพลิน as Sales, so
+  // that routed every one of them to the wrong inbox.
+  //
+  // Compared through personName() so the two spellings of one person meet:
+  // an order may say พลอยไพลิน (พลอย) หอมเนียม while mail_recipients holds
+  // พลอยไพลิน_หอมเนียม_พลอย, and a plain string compare would miss it and fall
+  // through to the ambiguous nickname.
+  const key = personName(person);
+  const byName = people.find(r => norm(r.name) === raw || personName(r.name) === key);
+  if (byName) return byName;
+
+  // The nickname is the last resort, and only when it is unambiguous. Two
+  // people answering to พลอย means the nickname cannot identify either of
+  // them; returning null hands the order to whoever covers that role, which
+  // is a visible gap rather than a confident delivery to the wrong person.
   const nick = nicknameOf(raw);
-  return nick ? people.find(r => r.nickname && norm(r.nickname) === nick) || null : null;
+  if (!nick) return null;
+  const byNick = people.filter(r => r.nickname && norm(r.nickname) === nick);
+  return byNick.length === 1 ? byNick[0] : null;
 }
 
 interface Resolved { email: string; name: string; why: string }
